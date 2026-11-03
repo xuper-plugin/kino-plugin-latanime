@@ -28,7 +28,7 @@ export function makeBrowse({ kino, brand, tabs, loadTab, searchTitles, canPlay =
   const meta = makeMetaCache({ kino, titleOf });
   /** [data] with what the meta cache knows: the cards' TMDB ids and the slides' title logos. */
   const enrich = (data) => (data ? {
-    slides: data.slides.map((s) => { const k = meta.known(s.id); return k.logo ? { ...s, logo: k.logo } : s; }),
+    slides: data.slides.map((s) => { const k = meta.known(s.id); return k.logo || k.backdrop ? { ...s, ...(k.logo ? { logo: k.logo } : {}), ...(k.backdrop ? { image: k.backdrop } : {}) } : s; }),
     rails: data.rails.map((r) => ({ ...r, items: meta.dress(r.items) })),
   } : data);
   const memo = new Map(); // tab -> { data, whole: loaded in this sandbox }

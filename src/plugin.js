@@ -67,8 +67,21 @@ async function listing(ref, page = 1) {
   const url = listUrl(ref, page);
   if (!url) return { items: [], next: undefined };
   const html = await pageText(url);
-  return { items: parseCards(html), next: hasNext(html) ? String(page + 1) : undefined };
+  return { items: withRefs(parseCards(html)), next: hasNext(html) ? String(page + 1) : undefined };
 }
+
+/**
+ * A poster of the site as the plugin's own picture: its thumbnails sit behind a Cloudflare challenge that Kino's image loader
+ * (OkHttp's User-Agent) cannot pass, while the plugin's own requests carry a browser User-Agent. `image` serves them.
+ */
+export function imageRef(url) {
+  const u = String(url || "");
+  if (!u.startsWith(SITE + "/thumbs/")) return u || undefined;
+  const handle = u.slice(SITE.length + 1);
+  return IMAGE_PATH.test(handle) ? { source: "plugin", handle } : u;
+}
+const IMAGE_PATH = /^thumbs\/(?!.*\.\.)[\w/.-]+(?:\?v=[\w.]+)?$/; // no ".." anywhere: the handle never leaves /thumbs/
+const withRefs = (items) => items.map((it) => (it.poster ? { ...it, poster: imageRef(it.poster) } : it));
 
 const rowOf = (ref, items) => ({ id: ref, title: LISTS[ref].es, titleEn: LISTS[ref].en, ref, items });
 
@@ -91,7 +104,7 @@ export async function search(query) {
   const q = String((query && query.q) || "").trim();
   if (!q) return [];
   const html = await pageText(SITE + "/buscar?q=" + encodeURIComponent(q));
-  return parseCards(html).slice(0, 60);
+  return withRefs(parseCards(html)).slice(0, 60);
 }
 
 export async function episodes(ref) {
@@ -212,4 +225,18 @@ export async function screen(ctx) {
 export async function screenEvent(ev) {
   await null;
   return browseScreen().event(ev && typeof ev === "object" ? ev : {});
+}
+
+/** `image({ handle })` (imageSource): a thumbnail of the site, fetched here with a browser User-Agent and handed to Kino as bytes. */
+export async function image({ handle }) {
+  const h = String(handle || "");
+  if (!IMAGE_PATH.test(h)) throw kino.error("not_found");
+  const r = await kino.fetch(SITE + "/" + h, { headers: { "User-Agent": UA, Referer: SITE + "/", Accept: "image/webp,image/jpeg,image/png,image/*;q=0.8" } });
+  if (!r.ok) throw kino.error("unavailable", "the picture answered " + r.status);
+  const bytes = r.base64();
+  // The type is read from the bytes themselves (their base64 starts the same way for every file of a kind).
+  const mime = bytes.startsWith("/9j/") ? "image/jpeg" : bytes.startsWith("iVBOR") ? "image/png" : bytes.startsWith("UklGR") ? "image/webp" : null;
+  if (!mime) throw kino.error("unavailable", "not a picture");
+  if (bytes.length * 3 / 4 > 262144) throw kino.error("unavailable", "the picture is over 256 KB");
+  return { bytes, mime };
 }

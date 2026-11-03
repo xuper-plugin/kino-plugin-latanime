@@ -10,7 +10,8 @@ const HTTPS = /^https:\/\//;
 /** The card Kino draws: the fields a rail needs and nothing else (the tree and the stored copy stay small). */
 export function cardOf(item) {
   const out = { id: item.id, ref: item.ref, title: item.title, kind: item.kind };
-  if (item.poster && HTTPS.test(item.poster)) out.poster = item.poster;
+  // A poster is a https address, or a reference to a picture the plugin serves itself (`imageSource`).
+  if (item.poster && (typeof item.poster === "object" ? item.poster.source === "plugin" && typeof item.poster.handle === "string" : HTTPS.test(item.poster))) out.poster = item.poster;
   if (item.backdrop && HTTPS.test(item.backdrop)) out.backdrop = item.backdrop;
   if (item.year !== undefined) out.year = item.year;
   if (item.lang) out.lang = item.lang;

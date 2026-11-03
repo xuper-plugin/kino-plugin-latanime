@@ -5,7 +5,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "../sdk/validate.mjs";
 import { parseCards, hasNext, parseAnime, parsePlayers, unwrap, seriesOfEpisode, langOf } from "../src/site.js";
-import { listUrl, TABS, serversOf, metaTitle } from "../src/plugin.js";
+import { listUrl, TABS, serversOf, metaTitle, imageRef } from "../src/plugin.js";
+import { makeMetaCache } from "../src/browse/metaCache.js";
+import { cardOf } from "../src/browse/model.js";
 import { tabOf, slidesOf, recentOf } from "../src/browse/model.js";
 import { browseView, searchView } from "../src/browse/view.js";
 import { wurlOf } from "../src/extractors/mixdrop.js";
@@ -146,4 +148,37 @@ test("the slider's key carries its slide count, so a pager is never reused for a
   assert.equal(keyOf(4), "hero4");
   assert.equal(keyOf(6), "hero6");
   assert.notEqual(keyOf(4), keyOf(6));
+});
+
+test("imageRef turns the site's thumbnails into the plugin's own pictures and leaves other addresses alone", () => {
+  assert.deepEqual(imageRef("https://latanime.org/thumbs/imagen/hotaru-1793381842.jpg?v=1.5"), { source: "plugin", handle: "thumbs/imagen/hotaru-1793381842.jpg?v=1.5" });
+  assert.equal(imageRef("https://image.tmdb.org/t/p/w500/a.jpg"), "https://image.tmdb.org/t/p/w500/a.jpg");
+  assert.equal(imageRef("https://latanime.org/thumbs/../secret"), "https://latanime.org/thumbs/../secret");
+  assert.equal(imageRef(""), undefined);
+});
+
+test("a card keeps a poster that is a plugin picture, and still drops one that is neither https nor a reference", () => {
+  const base = { id: "a", ref: "a", title: "A", kind: "series" };
+  assert.deepEqual(cardOf({ ...base, poster: { source: "plugin", handle: "thumbs/x.jpg" } }).poster, { source: "plugin", handle: "thumbs/x.jpg" });
+  assert.equal(cardOf({ ...base, poster: "http://x.example/p.jpg" }).poster, undefined);
+  assert.equal(cardOf({ ...base, poster: { source: "other", handle: "x" } }).poster, undefined);
+});
+
+test("the meta cache dresses a card with its TMDB poster and a slide with the backdrop, and asks each title once", async () => {
+  const store = new Map();
+  let asked = 0;
+  const kino = {
+    storage: { get: (k) => store.get(k) ?? null, set: (k, v) => store.set(k, v) },
+    meta: Object.assign(async () => { asked++; return { ids: { tmdb: 77 }, poster: "https://image.tmdb.org/t/p/w500/p.jpg", backdrop: "https://image.tmdb.org/t/p/w1280/b.jpg", logo: "https://image.tmdb.org/t/p/w500/l.png" }; }, { byTitle: true }),
+  };
+  const meta = makeMetaCache({ kino, titleOf: (c) => c.title.replace(/ Latino$/, "") });
+  assert.equal(await meta.fill([{ id: "a", title: "Hotaru Latino", kind: "series" }, { id: "a", title: "Hotaru Latino", kind: "series" }], 60_000), 1);
+  assert.equal(await meta.fill([{ id: "a", title: "Hotaru Latino", kind: "series" }], 60_000), 0);
+  assert.equal(asked, 1);
+  const [dressed] = meta.dress([{ id: "a", ref: "a", title: "Hotaru Latino", kind: "series", poster: { source: "plugin", handle: "thumbs/x.jpg" } }]);
+  assert.equal(dressed.poster, "https://image.tmdb.org/t/p/w500/p.jpg");
+  assert.equal(dressed.ids.tmdb, 77);
+  assert.equal(meta.known("a").backdrop, "https://image.tmdb.org/t/p/w1280/b.jpg");
+  const [plain] = meta.dress([{ id: "zzz", ref: "z", title: "Z", kind: "series", poster: "https://latanime.org/thumbs/z.jpg" }]);
+  assert.equal(plain.poster, "https://latanime.org/thumbs/z.jpg");
 });

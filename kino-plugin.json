@@ -1,8 +1,8 @@
 {
   "id": "latanime",
   "name": "LatAnime",
-  "version": "0.2.1",
-  "apiVersion": 9,
+  "version": "0.3.0",
+  "apiVersion": 13,
   "entry": "plugin.js",
   "icon": "icon.png",
   "description": "Anime en español latino, castellano o subtitulado de latanime.org, con slider, géneros y buscador.",
@@ -190,14 +190,16 @@
     "wishembed.pro",
     "*.wishembed.pro",
     "sfastwish.com",
-    "*.sfastwish.com"
+    "*.sfastwish.com",
+    "image.tmdb.org"
   ],
   "capabilities": [
     "search",
     "home",
     "browse",
     "episodes",
-    "resolve"
+    "resolve",
+    "imageSource"
   ],
   "streamHosts": "any",
   "categories": [

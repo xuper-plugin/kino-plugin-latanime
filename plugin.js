@@ -159,8 +159,8 @@ __export(streamwish_exports, {
 var kino_plugin_default = {
   id: "latanime",
   name: "LatAnime",
-  version: "0.2.1",
-  apiVersion: 9,
+  version: "0.3.0",
+  apiVersion: 13,
   entry: "plugin.js",
   icon: "icon.png",
   description: "Anime en espa\xF1ol latino, castellano o subtitulado de latanime.org, con slider, g\xE9neros y buscador.",
@@ -348,14 +348,16 @@ var kino_plugin_default = {
     "wishembed.pro",
     "*.wishembed.pro",
     "sfastwish.com",
-    "*.sfastwish.com"
+    "*.sfastwish.com",
+    "image.tmdb.org"
   ],
   capabilities: [
     "search",
     "home",
     "browse",
     "episodes",
-    "resolve"
+    "resolve",
+    "imageSource"
   ],
   streamHosts: "any",
   categories: [
@@ -1178,7 +1180,7 @@ var MAX_SLIDE_TEXT = 160;
 var HTTPS2 = /^https:\/\//;
 function cardOf(item) {
   const out = { id: item.id, ref: item.ref, title: item.title, kind: item.kind };
-  if (item.poster && HTTPS2.test(item.poster)) out.poster = item.poster;
+  if (item.poster && (typeof item.poster === "object" ? item.poster.source === "plugin" && typeof item.poster.handle === "string" : HTTPS2.test(item.poster))) out.poster = item.poster;
   if (item.backdrop && HTTPS2.test(item.backdrop)) out.backdrop = item.backdrop;
   if (item.year !== void 0) out.year = item.year;
   if (item.lang) out.lang = item.lang;
@@ -1190,12 +1192,12 @@ function slidesOf(rows) {
   for (const row of rows) {
     for (const item of row.items) {
       if (out.length >= MAX_SLIDES) return out;
-      const image = item.backdrop && HTTPS2.test(item.backdrop) ? item.backdrop : item.poster;
-      if (seen.has(item.id) || !image || !HTTPS2.test(image)) continue;
+      const image2 = item.backdrop && HTTPS2.test(item.backdrop) ? item.backdrop : item.poster;
+      if (seen.has(item.id) || !image2 || !HTTPS2.test(image2)) continue;
       const text = typeof item.overview === "string" ? item.overview.trim() : "";
       if (text === "") continue;
       seen.add(item.id);
-      out.push({ id: item.id, ref: item.ref, kind: item.kind, title: item.title, image, text: text.length <= MAX_SLIDE_TEXT ? text : `${text.slice(0, MAX_SLIDE_TEXT - 1).trimEnd()}\u2026` });
+      out.push({ id: item.id, ref: item.ref, kind: item.kind, title: item.title, image: image2, text: text.length <= MAX_SLIDE_TEXT ? text : `${text.slice(0, MAX_SLIDE_TEXT - 1).trimEnd()}\u2026` });
     }
   }
   return out;
@@ -1422,7 +1424,7 @@ function settingsView({ brand }) {
 }
 
 // src/browse/metaCache.js
-var KEY = "meta1";
+var KEY = "meta2";
 var MAX = 120;
 var CALL_MS = 8e3;
 var HTTPS3 = /^https:\/\//;
@@ -1456,12 +1458,18 @@ function makeMetaCache({ kino: kino2, titleOf = (c) => c.title, clock = { now: (
   function known(id) {
     const e = read()[id];
     if (!e) return {};
-    return { ...e.t > 0 ? { tmdb: e.t } : {}, ...e.l && HTTPS3.test(e.l) ? { logo: e.l } : {} };
+    return {
+      ...e.t > 0 ? { tmdb: e.t } : {},
+      ...e.l && HTTPS3.test(e.l) ? { logo: e.l } : {},
+      ...e.p && HTTPS3.test(e.p) ? { poster: e.p } : {},
+      ...e.b && HTTPS3.test(e.b) ? { backdrop: e.b } : {}
+    };
   }
   function dress(cards) {
     return cards.map((c) => {
       const k = known(c.id);
-      return k.tmdb && !(c.ids && c.ids.tmdb) ? { ...c, ids: { ...c.ids || {}, tmdb: k.tmdb } } : c;
+      if (!k.tmdb && !k.poster) return c;
+      return { ...c, ...k.tmdb && !(c.ids && c.ids.tmdb) ? { ids: { ...c.ids || {}, tmdb: k.tmdb } } : {}, ...k.poster ? { poster: k.poster } : {} };
     });
   }
   async function fill(cards, budgetMs) {
@@ -1475,7 +1483,12 @@ function makeMetaCache({ kino: kino2, titleOf = (c) => c.title, clock = { now: (
       const year = c.year !== void 0 ? { year: c.year } : {};
       try {
         const a = await kino2.meta({ type: c.kind === "series" ? "series" : "movie", title: titleOf(c), ...year });
-        b[c.id] = { t: a && a.ids && Number.isInteger(a.ids.tmdb) ? a.ids.tmdb : 0, l: a && typeof a.logo === "string" ? a.logo : "" };
+        b[c.id] = {
+          t: a && a.ids && Number.isInteger(a.ids.tmdb) ? a.ids.tmdb : 0,
+          l: a && typeof a.logo === "string" ? a.logo : "",
+          p: a && typeof a.poster === "string" ? a.poster : "",
+          b: a && typeof a.backdrop === "string" ? a.backdrop : ""
+        };
       } catch (e) {
         if (e && e.code === "rate_limited") break;
         continue;
@@ -1503,7 +1516,7 @@ function makeBrowse({ kino: kino2, brand, tabs, loadTab: loadTab2, searchTitles,
   const enrich = (data) => data ? {
     slides: data.slides.map((s) => {
       const k = meta.known(s.id);
-      return k.logo ? { ...s, logo: k.logo } : s;
+      return k.logo || k.backdrop ? { ...s, ...k.logo ? { logo: k.logo } : {}, ...k.backdrop ? { image: k.backdrop } : {} } : s;
     }),
     rails: data.rails.map((r) => ({ ...r, items: meta.dress(r.items) }))
   } : data;
@@ -1763,8 +1776,16 @@ async function listing(ref, page = 1) {
   const url = listUrl(ref, page);
   if (!url) return { items: [], next: void 0 };
   const html = await pageText2(url);
-  return { items: parseCards(html), next: hasNext(html) ? String(page + 1) : void 0 };
+  return { items: withRefs(parseCards(html)), next: hasNext(html) ? String(page + 1) : void 0 };
 }
+function imageRef(url) {
+  const u = String(url || "");
+  if (!u.startsWith(SITE + "/thumbs/")) return u || void 0;
+  const handle = u.slice(SITE.length + 1);
+  return IMAGE_PATH.test(handle) ? { source: "plugin", handle } : u;
+}
+var IMAGE_PATH = /^thumbs\/(?!.*\.\.)[\w/.-]+(?:\?v=[\w.]+)?$/;
+var withRefs = (items) => items.map((it) => it.poster ? { ...it, poster: imageRef(it.poster) } : it);
 var rowOf = (ref, items) => ({ id: ref, title: LISTS[ref].es, titleEn: LISTS[ref].en, ref, items });
 async function home() {
   const refs = ["emision", "animes", "c:Pel\xEDcula", "g:accion", "g:comedia"];
@@ -1788,7 +1809,7 @@ async function search(query) {
   const q = String(query && query.q || "").trim();
   if (!q) return [];
   const html = await pageText2(SITE + "/buscar?q=" + encodeURIComponent(q));
-  return parseCards(html).slice(0, 60);
+  return withRefs(parseCards(html)).slice(0, 60);
 }
 async function episodes(ref) {
   if (!/^[\w-]{1,160}$/.test(String(ref || ""))) throw kino.error("not_found");
@@ -1910,11 +1931,24 @@ async function screenEvent(ev) {
   await null;
   return browseScreen().event(ev && typeof ev === "object" ? ev : {});
 }
+async function image({ handle }) {
+  const h = String(handle || "");
+  if (!IMAGE_PATH.test(h)) throw kino.error("not_found");
+  const r = await kino.fetch(SITE + "/" + h, { headers: { "User-Agent": UA, Referer: SITE + "/", Accept: "image/webp,image/jpeg,image/png,image/*;q=0.8" } });
+  if (!r.ok) throw kino.error("unavailable", "the picture answered " + r.status);
+  const bytes = r.base64();
+  const mime = bytes.startsWith("/9j/") ? "image/jpeg" : bytes.startsWith("iVBOR") ? "image/png" : bytes.startsWith("UklGR") ? "image/webp" : null;
+  if (!mime) throw kino.error("unavailable", "not a picture");
+  if (bytes.length * 3 / 4 > 262144) throw kino.error("unavailable", "the picture is over 256 KB");
+  return { bytes, mime };
+}
 export {
   TABS,
   browse,
   episodes,
   home,
+  image,
+  imageRef,
   listUrl,
   metaTitle,
   resolve,
