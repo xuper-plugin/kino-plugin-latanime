@@ -228,15 +228,26 @@ export async function screenEvent(ev) {
 }
 
 /** `image({ handle })` (imageSource): a thumbnail of the site, fetched here with a browser User-Agent and handed to Kino as bytes. */
+// TEMPORARY diagnosis: how many calls reach `image` and how each ends, kept in the plugin's storage (key "imgdbg").
+function note(kind) {
+  try { const d = JSON.parse(kino.storage.get("imgdbg") || "{}"); d[kind] = (d[kind] || 0) + 1; kino.storage.set("imgdbg", JSON.stringify(d)); } catch (_) { /* no note */ }
+}
+
 export async function image({ handle }) {
+  note("call");
   const h = String(handle || "");
-  if (!IMAGE_PATH.test(h)) throw kino.error("not_found");
-  const r = await kino.fetch(SITE + "/" + h, { headers: { "User-Agent": UA, Referer: SITE + "/", Accept: "image/webp,image/jpeg,image/png,image/*;q=0.8" } });
+  if (!IMAGE_PATH.test(h)) { note("badhandle"); throw kino.error("not_found"); }
+  let r;
+  try {
+    r = await kino.fetch(SITE + "/" + h, { headers: { "User-Agent": UA, Referer: SITE + "/", Accept: "image/webp,image/jpeg,image/png,image/*;q=0.8" } });
+  } catch (e) { note("fetchthrow:" + ((e && e.code) || "error")); throw e; }
+  note("status" + r.status);
   if (!r.ok) throw kino.error("unavailable", "the picture answered " + r.status);
   const bytes = r.base64();
   // The type is read from the bytes themselves (their base64 starts the same way for every file of a kind).
   const mime = bytes.startsWith("/9j/") ? "image/jpeg" : bytes.startsWith("iVBOR") ? "image/png" : bytes.startsWith("UklGR") ? "image/webp" : null;
-  if (!mime) throw kino.error("unavailable", "not a picture");
-  if (bytes.length * 3 / 4 > 262144) throw kino.error("unavailable", "the picture is over 256 KB");
+  if (!mime) { note("notpicture:" + bytes.slice(0, 8)); throw kino.error("unavailable", "not a picture"); }
+  if (bytes.length * 3 / 4 > 262144) { note("toobig"); throw kino.error("unavailable", "the picture is over 256 KB"); }
+  note("ok");
   return { bytes, mime };
 }
