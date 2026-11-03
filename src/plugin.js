@@ -63,10 +63,26 @@ async function pageText(url) {
   return r.text();
 }
 
+// TEMPORARY diagnosis (once): the status of the same thumbnail asked three ways, kept in the plugin's storage ("imgdiag").
+async function diag(html) {
+  try {
+    if (kino.storage.get("imgdiag")) return;
+    const first = parseCards(html).find((c) => c.poster);
+    if (!first) return;
+    const variants = { uaOnly: { "User-Agent": UA }, uaReferer: { "User-Agent": UA, Referer: SITE + "/" }, noUa: {} };
+    const out = { poster: first.poster.slice(0, 90) };
+    for (const [k, h] of Object.entries(variants)) {
+      try { const r = await kino.fetch(first.poster, { headers: h }); out[k] = [r.status, r.headers["cf-mitigated"] || "", String(r.headers["content-type"] || "").slice(0, 24)]; } catch (e) { out[k] = ["throw", (e && e.code) || ""]; }
+    }
+    kino.storage.set("imgdiag", JSON.stringify(out));
+  } catch (_) { /* no diagnosis */ }
+}
+
 async function listing(ref, page = 1) {
   const url = listUrl(ref, page);
   if (!url) return { items: [], next: undefined };
   const html = await pageText(url);
+  await diag(html);
   return { items: withRefs(parseCards(html)), next: hasNext(html) ? String(page + 1) : undefined };
 }
 
