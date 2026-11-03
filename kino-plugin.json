@@ -1,7 +1,7 @@
 {
   "id": "latanime",
   "name": "LatAnime",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": 9,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -238,5 +238,63 @@
         "screen"
       ]
     }
-  }
+  },
+  "settings": [
+    {
+      "key": "server",
+      "type": "select",
+      "label": "Servidor preferido",
+      "labelEn": "Preferred server",
+      "default": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Automático",
+          "labelEn": "Automatic"
+        },
+        {
+          "value": "mp4upload",
+          "label": "Mp4Upload",
+          "labelEn": "Mp4Upload"
+        },
+        {
+          "value": "mixdrop",
+          "label": "MixDrop",
+          "labelEn": "MixDrop"
+        },
+        {
+          "value": "hexload",
+          "label": "Hexload",
+          "labelEn": "Hexload"
+        },
+        {
+          "value": "streamwish",
+          "label": "StreamWish",
+          "labelEn": "StreamWish"
+        },
+        {
+          "value": "vidhide",
+          "label": "VidHide",
+          "labelEn": "VidHide"
+        },
+        {
+          "value": "uqload",
+          "label": "Uqload",
+          "labelEn": "Uqload"
+        },
+        {
+          "value": "okru",
+          "label": "ok.ru",
+          "labelEn": "ok.ru"
+        },
+        {
+          "value": "voe",
+          "label": "VOE",
+          "labelEn": "VOE"
+        }
+      ],
+      "hint": "Se prueba primero al reproducir; si no abre, se siguen los demás.",
+      "hintEn": "It is tried first when you play; if it does not open, the others follow."
+    }
+  ]
 }

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "../sdk/validate.mjs";
 import { parseCards, hasNext, parseAnime, parsePlayers, unwrap, seriesOfEpisode, langOf } from "../src/site.js";
-import { listUrl, TABS } from "../src/plugin.js";
+import { listUrl, TABS, serversOf, metaTitle } from "../src/plugin.js";
 import { tabOf, slidesOf, recentOf } from "../src/browse/model.js";
 import { browseView, searchView } from "../src/browse/view.js";
 import { wurlOf } from "../src/extractors/mixdrop.js";
@@ -119,4 +119,19 @@ test("the screen's trees: skeletons before the data, the slider and rails after,
   for (const t of tabs) assert.ok(after.includes(t.es), t.es);
   const search = JSON.stringify(searchView({ query: "naruto", status: "done", items: [item(1)], device: "phone" }));
   assert.ok(search.includes("titleGrid"));
+});
+
+test("metaTitle drops the language, season and year the site adds, for TMDB", () => {
+  assert.equal(metaTitle("Hotaru no Yomeiri Latino"), "Hotaru no Yomeiri");
+  assert.equal(metaTitle("Hyouken no Majutsushi S2 Latino"), "Hyouken no Majutsushi");
+  assert.equal(metaTitle("Magic Knight Rayearth (2026) Castellano"), "Magic Knight Rayearth");
+  assert.equal(metaTitle("Boruto: Naruto, La Película"), "Boruto: Naruto, La Película");
+});
+
+test("serversOf puts the preferred server first and keeps the usual order otherwise", () => {
+  const b64 = (u) => btoa(u);
+  const html = ["https://mixdrop.top/e/a", "https://www.mp4upload.com/embed-b.html", "https://hexload.com/embed-c", "https://unknown.example/e/z"]
+    .map((u, i) => `<li id="play-video"><a class="play-video" data-player="${b64(u)}">s${i}</a></li>`).join("");
+  assert.deepEqual(serversOf(html).map((s) => s.kind), ["mp4upload", "mixdrop", "hexload"]);
+  assert.deepEqual(serversOf(html, "hexload").map((s) => s.kind), ["hexload", "mp4upload", "mixdrop"]);
 });

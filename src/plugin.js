@@ -120,9 +120,11 @@ function rankOf(name) {
 }
 
 /** The episode's servers, best first, as `[{ link, name, n }]`; `n` is the position a lazy copy's ref names. */
-export function serversOf(html) {
+export function serversOf(html, preferred = "") {
   const list = parsePlayers(html).filter((p) => understood(p.link)).map((p, n) => ({ ...p, n, kind: extractorFor(p.link).name }));
-  return list.sort((a, b) => rankOf(a.kind) - rankOf(b.kind) || a.n - b.n).slice(0, MAX_COPIES);
+  // The person's preferred server first, then the usual order.
+  const rank = (k) => (k === preferred ? -1 : rankOf(k));
+  return list.sort((a, b) => rank(a.kind) - rank(b.kind) || a.n - b.n).slice(0, MAX_COPIES);
 }
 
 const labelOf = (s) => (s.name + " · " + hostName(s.link)).slice(0, 48);
@@ -131,7 +133,9 @@ function hostName(link) { try { return new URL(link).hostname.replace(/^www\./, 
 export async function resolve(ref) {
   const [slug, pick] = String(ref || "").split("|");
   if (!/^[\w-]{1,160}$/.test(slug)) throw kino.error("not_found");
-  const servers = serversOf(await pageText(SITE + "/ver/" + slug));
+  let preferred = "";
+  try { preferred = String(kino.config.get("server") || ""); } catch (_) { /* the usual order */ }
+  const servers = serversOf(await pageText(SITE + "/ver/" + slug), preferred === "auto" ? "" : preferred);
   if (!servers.length) throw kino.error("not_found", "no servers", { userMessage: t(kino, "noServer") });
   const pool = requestPool(54);
   const deadline = Date.now() + CALL_MS;
@@ -183,6 +187,11 @@ async function loadTab(tabId) {
   return { rows };
 }
 
+/** A title as TMDB knows it: without the language the site adds ("Latino", "Castellano"), the season or the year. */
+export function metaTitle(title) {
+  return String(title || "").replace(/\s+(?:latino|castellano|subtitulado)\s*$/i, "").replace(/\s+\(\d{4}\)\s*$/, "").replace(/\s+S\d+\s*$/i, "").trim();
+}
+
 let browseInstance = null;
 const browseScreen = () => (browseInstance ??= makeBrowse({
   kino,
@@ -190,6 +199,7 @@ const browseScreen = () => (browseInstance ??= makeBrowse({
   tabs: TABS.map(({ id, es, en }) => ({ id, es, en })),
   loadTab,
   searchTitles: (q) => search({ q }),
+  titleOf: (c) => metaTitle(c.title),
 }));
 
 /** `screen(ctx)`: the plugin's own browse screen (a pure view: it draws what it holds and never waits for the site). */
