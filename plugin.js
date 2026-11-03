@@ -159,7 +159,7 @@ __export(streamwish_exports, {
 var kino_plugin_default = {
   id: "latanime",
   name: "LatAnime",
-  version: "0.2.1",
+  version: "0.2.2",
   apiVersion: 9,
   entry: "plugin.js",
   icon: "icon.png",
@@ -1422,11 +1422,11 @@ function settingsView({ brand }) {
 }
 
 // src/browse/metaCache.js
-var KEY = "meta1";
+var KEY = "meta2";
 var MAX = 120;
 var CALL_MS = 8e3;
 var HTTPS3 = /^https:\/\//;
-function makeMetaCache({ kino: kino2, titleOf = (c) => c.title, clock = { now: () => Date.now() } }) {
+function makeMetaCache({ kino: kino2, titleOf = (c) => c.title, typeOf = (c) => c.kind === "series" ? "series" : "movie", clock = { now: () => Date.now() } }) {
   const usable = () => {
     try {
       return typeof kino2.meta === "function" && kino2.meta.byTitle === true;
@@ -1456,12 +1456,18 @@ function makeMetaCache({ kino: kino2, titleOf = (c) => c.title, clock = { now: (
   function known(id) {
     const e = read()[id];
     if (!e) return {};
-    return { ...e.t > 0 ? { tmdb: e.t } : {}, ...e.l && HTTPS3.test(e.l) ? { logo: e.l } : {} };
+    return {
+      ...e.t > 0 ? { tmdb: e.t } : {},
+      ...e.l && HTTPS3.test(e.l) ? { logo: e.l } : {},
+      ...e.p && HTTPS3.test(e.p) ? { poster: e.p } : {},
+      ...e.b && HTTPS3.test(e.b) ? { backdrop: e.b } : {}
+    };
   }
   function dress(cards) {
     return cards.map((c) => {
       const k = known(c.id);
-      return k.tmdb && !(c.ids && c.ids.tmdb) ? { ...c, ids: { ...c.ids || {}, tmdb: k.tmdb } } : c;
+      if (!k.tmdb && !k.poster) return c;
+      return { ...c, ...k.tmdb && !(c.ids && c.ids.tmdb) ? { ids: { ...c.ids || {}, tmdb: k.tmdb } } : {}, ...k.poster ? { poster: k.poster } : {} };
     });
   }
   async function fill(cards, budgetMs) {
@@ -1474,8 +1480,13 @@ function makeMetaCache({ kino: kino2, titleOf = (c) => c.title, clock = { now: (
       if (!c || typeof c.id !== "string" || Object.hasOwn(b, c.id) || c.ids && c.ids.tmdb && c.noLogo) continue;
       const year = c.year !== void 0 ? { year: c.year } : {};
       try {
-        const a = await kino2.meta({ type: c.kind === "series" ? "series" : "movie", title: titleOf(c), ...year });
-        b[c.id] = { t: a && a.ids && Number.isInteger(a.ids.tmdb) ? a.ids.tmdb : 0, l: a && typeof a.logo === "string" ? a.logo : "" };
+        const a = await kino2.meta({ type: typeOf(c), title: titleOf(c), ...year });
+        b[c.id] = {
+          t: a && a.ids && Number.isInteger(a.ids.tmdb) ? a.ids.tmdb : 0,
+          l: a && typeof a.logo === "string" ? a.logo : "",
+          p: a && typeof a.poster === "string" ? a.poster : "",
+          b: a && typeof a.backdrop === "string" ? a.backdrop : ""
+        };
       } catch (e) {
         if (e && e.code === "rate_limited") break;
         continue;
@@ -1493,17 +1504,17 @@ var SNAP_TTL_MS = 12 * 3600 * 1e3;
 var SNAP_MAX = 20 * 1024;
 var RECENT_MAX = 12;
 var HIST_MAX = 24;
-function makeBrowse({ kino: kino2, brand, tabs, loadTab: loadTab2, searchTitles, canPlay = false, titleOf }) {
+function makeBrowse({ kino: kino2, brand, tabs, loadTab: loadTab2, searchTitles, canPlay = false, titleOf, typeOf }) {
   const TAB_IDS = tabs.map((t2) => t2.id);
   const TAB_KEY = "browseTab";
   const SNAP_PREFIX = "browse1:";
   const RECENT_KEY = "recent1";
   const HIST_KEY = "searchHist1";
-  const meta = makeMetaCache({ kino: kino2, titleOf });
+  const meta = makeMetaCache({ kino: kino2, titleOf, typeOf });
   const enrich = (data) => data ? {
     slides: data.slides.map((s) => {
       const k = meta.known(s.id);
-      return k.logo ? { ...s, logo: k.logo } : s;
+      return k.logo || k.backdrop ? { ...s, ...k.logo ? { logo: k.logo } : {}, ...k.backdrop ? { image: k.backdrop } : {} } : s;
     }),
     rails: data.rails.map((r) => ({ ...r, items: meta.dress(r.items) }))
   } : data;
@@ -1891,8 +1902,9 @@ async function loadTab(tabId) {
   return { rows };
 }
 function metaTitle(title) {
-  return String(title || "").replace(/\s+(?:latino|castellano|subtitulado)\s*$/i, "").replace(/\s+\(\d{4}\)\s*$/, "").replace(/\s+S\d+\s*$/i, "").trim();
+  return String(title || "").replace(/\s+(?:latino|castellano|subtitulado|japon[eé]s|sub espa[nñ]ol)\s*$/i, "").replace(/\s+\((?:\d{4}|latino|castellano)\)\s*$/i, "").replace(/\s+(?:S\d+|temporada\s*\d+|\d+(?:st|nd|rd|th)\s+season)\s*$/i, "").replace(/\s*[:\-–]?\s*(?:la\s+)?pel[ií]culas?\s*$/i, "").replace(/\s+(?:latino|castellano|subtitulado|japon[eé]s)\s*$/i, "").replace(/[\s,:;\-–]+$/, "").trim();
 }
+var metaType = (title) => /pel[ií]culas?/i.test(String(title || "")) ? "movie" : "series";
 var browseInstance = null;
 var browseScreen = () => browseInstance ?? (browseInstance = makeBrowse({
   kino,
@@ -1900,7 +1912,8 @@ var browseScreen = () => browseInstance ?? (browseInstance = makeBrowse({
   tabs: TABS.map(({ id, es, en }) => ({ id, es, en })),
   loadTab,
   searchTitles: (q) => search({ q }),
-  titleOf: (c) => metaTitle(c.title)
+  titleOf: (c) => metaTitle(c.title),
+  typeOf: (c) => metaType(c.title)
 }));
 async function screen(ctx) {
   await null;
@@ -1917,6 +1930,7 @@ export {
   home,
   listUrl,
   metaTitle,
+  metaType,
   resolve,
   screen,
   screenEvent,

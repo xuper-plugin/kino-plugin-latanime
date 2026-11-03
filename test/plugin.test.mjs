@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "../sdk/validate.mjs";
 import { parseCards, hasNext, parseAnime, parsePlayers, unwrap, seriesOfEpisode, langOf } from "../src/site.js";
-import { listUrl, TABS, serversOf, metaTitle } from "../src/plugin.js";
+import { listUrl, TABS, serversOf, metaTitle, metaType } from "../src/plugin.js";
+import { makeMetaCache } from "../src/browse/metaCache.js";
 import { tabOf, slidesOf, recentOf } from "../src/browse/model.js";
 import { browseView, searchView } from "../src/browse/view.js";
 import { wurlOf } from "../src/extractors/mixdrop.js";
@@ -121,11 +122,21 @@ test("the screen's trees: skeletons before the data, the slider and rails after,
   assert.ok(search.includes("titleGrid"));
 });
 
-test("metaTitle drops the language, season and year the site adds, for TMDB", () => {
+test("metaTitle drops the language, season, year and the word Pelicula the site adds, for TMDB", () => {
   assert.equal(metaTitle("Hotaru no Yomeiri Latino"), "Hotaru no Yomeiri");
   assert.equal(metaTitle("Hyouken no Majutsushi S2 Latino"), "Hyouken no Majutsushi");
   assert.equal(metaTitle("Magic Knight Rayearth (2026) Castellano"), "Magic Knight Rayearth");
-  assert.equal(metaTitle("Boruto: Naruto, La Película"), "Boruto: Naruto, La Película");
+  assert.equal(metaTitle("Seishun Buta Yarou Película"), "Seishun Buta Yarou");
+  assert.equal(metaTitle("Boruto: Naruto, La Película"), "Boruto: Naruto");
+  assert.equal(metaTitle("Luo Xiao Hei Zhan Ji Japonés"), "Luo Xiao Hei Zhan Ji");
+  assert.equal(metaTitle("Helluva Boss Temporada 3 Castellano"), "Helluva Boss");
+  assert.equal(metaTitle("Psyren Latino"), "Psyren");
+});
+
+test("metaType asks TMDB for a movie when the site calls the title a Pelicula", () => {
+  assert.equal(metaType("Urusei Yatsura Película"), "movie");
+  assert.equal(metaType("Boruto: Naruto, La Película"), "movie");
+  assert.equal(metaType("Psyren Latino"), "series");
 });
 
 test("serversOf puts the preferred server first and keeps the usual order otherwise", () => {
@@ -146,4 +157,23 @@ test("the slider's key carries its slide count, so a pager is never reused for a
   assert.equal(keyOf(4), "hero4");
   assert.equal(keyOf(6), "hero6");
   assert.notEqual(keyOf(4), keyOf(6));
+});
+
+test("the meta cache dresses a card with its TMDB poster and a slide with the backdrop, and asks each title once", async () => {
+  const store = new Map();
+  let asked = 0;
+  const kino = {
+    storage: { get: (k) => store.get(k) ?? null, set: (k, v) => store.set(k, v) },
+    meta: Object.assign(async () => { asked++; return { ids: { tmdb: 77 }, poster: "https://image.tmdb.org/t/p/w500/p.jpg", backdrop: "https://image.tmdb.org/t/p/w1280/b.jpg", logo: "https://image.tmdb.org/t/p/w500/l.png" }; }, { byTitle: true }),
+  };
+  const meta = makeMetaCache({ kino, titleOf: (c) => c.title.replace(/ Latino$/, "") });
+  assert.equal(await meta.fill([{ id: "a", title: "Hotaru Latino", kind: "series" }, { id: "a", title: "Hotaru Latino", kind: "series" }], 60_000), 1);
+  assert.equal(await meta.fill([{ id: "a", title: "Hotaru Latino", kind: "series" }], 60_000), 0);
+  assert.equal(asked, 1);
+  const [dressed] = meta.dress([{ id: "a", ref: "a", title: "Hotaru Latino", kind: "series", poster: "https://latanime.org/thumbs/x.jpg" }]);
+  assert.equal(dressed.poster, "https://image.tmdb.org/t/p/w500/p.jpg");
+  assert.equal(dressed.ids.tmdb, 77);
+  assert.equal(meta.known("a").backdrop, "https://image.tmdb.org/t/p/w1280/b.jpg");
+  const [plain] = meta.dress([{ id: "zzz", ref: "z", title: "Z", kind: "series", poster: "https://latanime.org/thumbs/z.jpg" }]);
+  assert.equal(plain.poster, "https://latanime.org/thumbs/z.jpg");
 });

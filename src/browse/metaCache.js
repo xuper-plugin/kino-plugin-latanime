@@ -2,14 +2,14 @@
 // TMDB id lets Kino complete its page (description, logo, cast) from TMDB; a slide with a logo draws it where its title is.
 // One lookup per title, by its name (and year when the card has one), kept in kino.storage (`meta1`, at most MAX entries, the
 // oldest dropped) so a title is asked once. Nothing here ever throws: a title that cannot be matched just stays as it was.
-const KEY = "meta1";
+const KEY = "meta2"; // v2 also keeps the poster and the backdrop
 const MAX = 120;
 const CALL_MS = 8_000;
 const HTTPS = /^https:\/\//;
 
-export function makeMetaCache({ kino, titleOf = (c) => c.title, clock = { now: () => Date.now() } }) {
+export function makeMetaCache({ kino, titleOf = (c) => c.title, typeOf = (c) => (c.kind === "series" ? "series" : "movie"), clock = { now: () => Date.now() } }) {
   const usable = () => { try { return typeof kino.meta === "function" && kino.meta.byTitle === true; } catch (_) { return false; } };
-  let book = null; // id -> { t: tmdb id | 0, l: logo | "" }, 0 / "" = asked and nothing found
+  let book = null; // id -> { t: tmdb id | 0, l: logo | "", p: poster | "", b: backdrop | "" }, 0 / "" = asked and nothing found
 
   function read() {
     if (book) return book;
@@ -27,16 +27,23 @@ export function makeMetaCache({ kino, titleOf = (c) => c.title, clock = { now: (
     } catch (_) { /* full storage: asked again next time */ }
   }
 
-  /** What is known of card [id]: `{ tmdb?, logo? }`. */
+  /** What is known of card [id]: `{ tmdb?, logo?, poster?, backdrop? }`. */
   function known(id) {
     const e = read()[id];
     if (!e) return {};
-    return { ...(e.t > 0 ? { tmdb: e.t } : {}), ...(e.l && HTTPS.test(e.l) ? { logo: e.l } : {}) };
+    return {
+      ...(e.t > 0 ? { tmdb: e.t } : {}), ...(e.l && HTTPS.test(e.l) ? { logo: e.l } : {}),
+      ...(e.p && HTTPS.test(e.p) ? { poster: e.p } : {}), ...(e.b && HTTPS.test(e.b) ? { backdrop: e.b } : {}),
+    };
   }
 
-  /** The cards with their TMDB id; [cards] untouched when nothing is known. */
+  /** The cards with their TMDB id and TMDB poster (the site's own pictures sit behind a Cloudflare challenge); [cards] untouched when nothing is known. */
   function dress(cards) {
-    return cards.map((c) => { const k = known(c.id); return k.tmdb && !(c.ids && c.ids.tmdb) ? { ...c, ids: { ...(c.ids || {}), tmdb: k.tmdb } } : c; });
+    return cards.map((c) => {
+      const k = known(c.id);
+      if (!k.tmdb && !k.poster) return c;
+      return { ...c, ...(k.tmdb && !(c.ids && c.ids.tmdb) ? { ids: { ...(c.ids || {}), tmdb: k.tmdb } } : {}), ...(k.poster ? { poster: k.poster } : {}) };
+    });
   }
 
   /**
@@ -54,8 +61,11 @@ export function makeMetaCache({ kino, titleOf = (c) => c.title, clock = { now: (
       if (!c || typeof c.id !== "string" || Object.hasOwn(b, c.id) || (c.ids && c.ids.tmdb && c.noLogo)) continue;
       const year = c.year !== undefined ? { year: c.year } : {};
       try {
-        const a = await kino.meta({ type: c.kind === "series" ? "series" : "movie", title: titleOf(c), ...year });
-        b[c.id] = { t: a && a.ids && Number.isInteger(a.ids.tmdb) ? a.ids.tmdb : 0, l: a && typeof a.logo === "string" ? a.logo : "" };
+        const a = await kino.meta({ type: typeOf(c), title: titleOf(c), ...year });
+        b[c.id] = {
+          t: a && a.ids && Number.isInteger(a.ids.tmdb) ? a.ids.tmdb : 0, l: a && typeof a.logo === "string" ? a.logo : "",
+          p: a && typeof a.poster === "string" ? a.poster : "", b: a && typeof a.backdrop === "string" ? a.backdrop : "",
+        };
       } catch (e) {
         if (e && e.code === "rate_limited") break; // asked again later
         continue;

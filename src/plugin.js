@@ -187,10 +187,20 @@ async function loadTab(tabId) {
   return { rows };
 }
 
-/** A title as TMDB knows it: without the language the site adds ("Latino", "Castellano"), the season or the year. */
+/** A title as TMDB knows it: without the language the site adds, the season, the part, the year or the word "Película". */
 export function metaTitle(title) {
-  return String(title || "").replace(/\s+(?:latino|castellano|subtitulado)\s*$/i, "").replace(/\s+\(\d{4}\)\s*$/, "").replace(/\s+S\d+\s*$/i, "").trim();
+  return String(title || "")
+    .replace(/\s+(?:latino|castellano|subtitulado|japon[eé]s|sub espa[nñ]ol)\s*$/i, "")
+    .replace(/\s+\((?:\d{4}|latino|castellano)\)\s*$/i, "")
+    .replace(/\s+(?:S\d+|temporada\s*\d+|\d+(?:st|nd|rd|th)\s+season)\s*$/i, "")
+    .replace(/\s*[:\-–]?\s*(?:la\s+)?pel[ií]culas?\s*$/i, "")
+    .replace(/\s+(?:latino|castellano|subtitulado|japon[eé]s)\s*$/i, "")
+    .replace(/[\s,:;\-–]+$/, "")
+    .trim();
 }
+
+/** The TMDB search a card belongs to: the site files its films as "Película". */
+export const metaType = (title) => (/pel[ií]culas?/i.test(String(title || "")) ? "movie" : "series");
 
 let browseInstance = null;
 const browseScreen = () => (browseInstance ??= makeBrowse({
@@ -200,6 +210,7 @@ const browseScreen = () => (browseInstance ??= makeBrowse({
   loadTab,
   searchTitles: (q) => search({ q }),
   titleOf: (c) => metaTitle(c.title),
+  typeOf: (c) => metaType(c.title),
 }));
 
 /** `screen(ctx)`: the plugin's own browse screen (a pure view: it draws what it holds and never waits for the site). */
