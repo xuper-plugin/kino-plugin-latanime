@@ -122,6 +122,16 @@ test("the screen's trees: skeletons before the data, the slider and rails after,
   assert.ok(search.includes("titleGrid"));
 });
 
+test("every picture of a hero card, rail and grid is asked with the site's Referer and a browser User-Agent", () => {
+  const tabs = TABS.map(({ id, es, en }) => ({ id, es, en }));
+  const data = { slides: [{ id: "a1", ref: "a1", kind: "series", title: "Anime 1", image: "https://latanime.org/thumbs/b.webp", text: "S" }, { id: "a2", ref: "a2", kind: "series", title: "Anime 2", image: "https://latanime.org/thumbs/c.webp", text: "S" }], rails: [{ id: "r", title: "R", items: [item(1)] }] };
+  const view = JSON.stringify(browseView({ brand: "LatAnime", tabs, tab: "inicio", data, recent: [], pending: false, failed: false }));
+  const search = JSON.stringify(searchView({ query: "naruto", status: "done", items: [item(1)], device: "phone" }));
+  const wanted = '"headers":{"Referer":"https://latanime.org/","User-Agent":"Mozilla/5.0';
+  assert.equal(view.split(wanted).length - 1, 3, "two slides and one rail");
+  assert.equal(search.split(wanted).length - 1, 1, "the grid");
+});
+
 test("metaTitle drops the language, season, year and the word Pelicula the site adds, for TMDB", () => {
   assert.equal(metaTitle("Hotaru no Yomeiri Latino"), "Hotaru no Yomeiri");
   assert.equal(metaTitle("Hyouken no Majutsushi S2 Latino"), "Hyouken no Majutsushi");

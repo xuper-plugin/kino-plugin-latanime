@@ -2,8 +2,16 @@
 // will replace them, so nothing jumps when the rows arrive. Every text is in both languages.
 import { both } from "../i18n.js";
 import { LOGO_DATA, LOGO_ASPECT } from "./logo.js";
+import { SITE } from "../site.js";
+import { UA } from "../util/http.js";
 
 const POLL_MS = 1_500;
+
+/**
+ * What the site's own thumbnails are asked with (Kino 0.9.83 sends `headers` on every picture of a hero card, rail or grid, only to the
+ * hosts the manifest declares): its own page as the Referer and a browser User-Agent, so the pictures do not depend on Kino's default.
+ */
+const IMAGE_HEADERS = { Referer: SITE + "/", "User-Agent": UA };
 const SEARCH_CAP = 60;
 
 /** `key` in both languages as a node's twin texts: `{ [field]: Spanish, [field + "En"]: English }`. */
@@ -33,7 +41,7 @@ const gridSkeleton = () => ({
 const heroSkeleton = () => ({ type: "Skeleton", key: "heroSkeleton", shape: "block", height: { compact: 200, expanded: 320 } });
 
 const slideNode = (s, canPlay) => ({
-  type: "heroCard", key: "slide-" + s.id, h: { compact: 200, expanded: 240 }, ...(s.logo ? { logo: s.logo } : {}), title: s.title, text: s.text, image: s.image,
+  type: "heroCard", key: "slide-" + s.id, h: { compact: 200, expanded: 240 }, ...(s.logo ? { logo: s.logo } : {}), title: s.title, text: s.text, image: s.image, headers: IMAGE_HEADERS,
   buttons: canPlay
     ? [
       { type: "ElevatedButton", key: "watch-" + s.id, ...twin("brWatch", "labelText"), icon: "play", onPressed: { go: { play: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } } },
@@ -49,7 +57,7 @@ const slideNode = (s, canPlay) => ({
 const hero = (slides, canPlay) => (slides.length === 1 ? slideNode(slides[0], canPlay) : { type: "PageView", key: "hero" + slides.length, autoPlayMs: 6_000, children: slides.map((x) => slideNode(x, canPlay)) });
 
 const rail = (r, key, titleOverride) => ({
-  type: "titleRail", key, ...(titleOverride || { title: r.title, ...(r.titleEn ? { titleEn: r.titleEn } : {}) }), ...(r.ref ? { ref: r.ref } : {}), items: r.items, size: "medium",
+  type: "titleRail", key, ...(titleOverride || { title: r.title, ...(r.titleEn ? { titleEn: r.titleEn } : {}) }), ...(r.ref ? { ref: r.ref } : {}), items: r.items, size: "medium", headers: IMAGE_HEADERS,
 });
 
 /** The plugin's logo as the bar's title; the name itself where the logo cannot be drawn (an older Kino, a refused picture). */
@@ -117,12 +125,12 @@ export function searchView({ query, status, items, history = [], device = "phone
     body.push({ type: "MaterialBanner", key: "searchFailed", role: "error", ...twin("brSearchFailed"), action: { ...twin("brRetry", "label"), onTap: "sretry" } });
   } else if (status === "done" && items) {
     if (items.length === 0) body.push({ type: "Text", ...twin("brNoResults", "text"), color: "muted" });
-    else body.push({ type: "titleGrid", key: "results", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP) });
+    else body.push({ type: "titleGrid", key: "results", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP), headers: IMAGE_HEADERS });
   } else if (status !== "idle") {
     body.push(gridSkeleton());
   } else if (history.length > 0) {
     body.push({ type: "Text", ...twin("brSearchedBefore", "text"), style: "h4" });
-    body.push({ type: "titleGrid", key: "history", columns: { compact: 3, expanded: 6 }, items: history.slice(0, SEARCH_CAP) });
+    body.push({ type: "titleGrid", key: "history", columns: { compact: 3, expanded: 6 }, items: history.slice(0, SEARCH_CAP), headers: IMAGE_HEADERS });
   }
   return {
     type: "Scaffold",

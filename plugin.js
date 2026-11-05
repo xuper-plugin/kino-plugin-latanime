@@ -159,7 +159,7 @@ __export(streamwish_exports, {
 var kino_plugin_default = {
   id: "latanime",
   name: "LatAnime",
-  version: "0.2.2",
+  version: "0.2.3",
   apiVersion: 9,
   entry: "plugin.js",
   icon: "icon.png",
@@ -1267,6 +1267,7 @@ var LOGO_DATA = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAaEAAAB4CAMAAABsM
 
 // src/browse/view.js
 var POLL_MS = 1500;
+var IMAGE_HEADERS = { Referer: SITE + "/", "User-Agent": UA };
 var SEARCH_CAP = 60;
 var twin = (key, field = "text", vars) => {
   const w = both(key, vars);
@@ -1301,6 +1302,7 @@ var slideNode = (s, canPlay) => ({
   title: s.title,
   text: s.text,
   image: s.image,
+  headers: IMAGE_HEADERS,
   buttons: canPlay ? [
     { type: "ElevatedButton", key: "watch-" + s.id, ...twin("brWatch", "labelText"), icon: "play", onPressed: { go: { play: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } } },
     { type: "TextButton", key: "info-" + s.id, ...twin("brInfo", "labelText"), onPressed: { go: { title: { ref: s.ref, kind: s.kind, id: s.id, title: s.title } } } }
@@ -1315,7 +1317,8 @@ var rail = (r, key, titleOverride) => ({
   ...titleOverride || { title: r.title, ...r.titleEn ? { titleEn: r.titleEn } : {} },
   ...r.ref ? { ref: r.ref } : {},
   items: r.items,
-  size: "medium"
+  size: "medium",
+  headers: IMAGE_HEADERS
 });
 var brandNode = (brand) => ({
   type: "Image",
@@ -1385,12 +1388,12 @@ function searchView({ query, status, items, history = [], device = "phone" }) {
     body.push({ type: "MaterialBanner", key: "searchFailed", role: "error", ...twin("brSearchFailed"), action: { ...twin("brRetry", "label"), onTap: "sretry" } });
   } else if (status === "done" && items) {
     if (items.length === 0) body.push({ type: "Text", ...twin("brNoResults", "text"), color: "muted" });
-    else body.push({ type: "titleGrid", key: "results", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP) });
+    else body.push({ type: "titleGrid", key: "results", columns: { compact: 3, expanded: 6 }, items: items.slice(0, SEARCH_CAP), headers: IMAGE_HEADERS });
   } else if (status !== "idle") {
     body.push(gridSkeleton());
   } else if (history.length > 0) {
     body.push({ type: "Text", ...twin("brSearchedBefore", "text"), style: "h4" });
-    body.push({ type: "titleGrid", key: "history", columns: { compact: 3, expanded: 6 }, items: history.slice(0, SEARCH_CAP) });
+    body.push({ type: "titleGrid", key: "history", columns: { compact: 3, expanded: 6 }, items: history.slice(0, SEARCH_CAP), headers: IMAGE_HEADERS });
   }
   return {
     type: "Scaffold",
