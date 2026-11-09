@@ -8,6 +8,9 @@ import { SITE, parseCards, hasNext, parseAnime, parsePlayers, seriesOfEpisode } 
 import { makeBrowse } from "./browse/index.js";
 import { t } from "./i18n.js";
 
+// Kino waits for every request a call left running before it delivers the call's answer; ask it to drop them once the call settles.
+globalThis.__kinoDropPendingFetches = true;
+
 const BRAND = "LatAnime";
 const MAX_COPIES = 8;
 const TRY_AT_ONCE = 3; // servers opened together when an episode is played
@@ -70,14 +73,33 @@ async function listing(ref, page = 1) {
   return { items: parseCards(html), next: hasNext(html) ? String(page + 1) : undefined };
 }
 
-const rowOf = (ref, items) => ({ id: ref, title: LISTS[ref].es, titleEn: LISTS[ref].en, ref, items });
+// A row id is letters, digits, "-" and "_": "g:accion" (the list's ref, kept as the row's `ref`) was dropped by Kino, leaving the Home with two rows.
+const rowOf = (ref, items) => ({ id: ref.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w-]/g, "-"), title: LISTS[ref].es, titleEn: LISTS[ref].en, ref, items });
+
+/** Waits for `work` in short sleeps until it settles or `ms` pass; never rejects. */
+async function settledWithin(ms, work) {
+  let done = false;
+  Promise.resolve(work).then(() => { done = true; }, () => { done = true; });
+  const end = Date.now() + ms;
+  while (!done && Date.now() < end) await kino.sleep(Math.min(250, Math.max(1, end - Date.now())));
+  return done;
+}
+
+/** Kino cuts a call at 20 s: the lists still loading by this time are left off and the ones that loaded are shown. */
+const ROWS_BUDGET_MS = 11000;
+
+/** The rows of these lists, asked together; each one that fails or is slow is left out. */
+async function rowsOfLists(refs) {
+  const out = refs.map(() => null);
+  const all = Promise.all(refs.map(async (ref, i) => {
+    try { const p = await listing(ref, 1); out[i] = p.items.length ? rowOf(ref, p.items) : null; } catch (_) { /* left out */ }
+  }));
+  await settledWithin(ROWS_BUDGET_MS, all);
+  return out.filter(Boolean);
+}
 
 export async function home() {
-  const refs = ["emision", "animes", "c:Película", "g:accion", "g:comedia"];
-  const rows = await Promise.all(refs.map(async (ref) => {
-    try { const p = await listing(ref, 1); return p.items.length ? rowOf(ref, p.items) : null; } catch (_) { return null; }
-  }));
-  const out = rows.filter(Boolean);
+  const out = await rowsOfLists(["emision", "animes", "c:Película", "g:accion", "g:comedia"]);
   if (!out.length) throw kino.error("unavailable", "no list answered", { userMessage: t(kino, "siteDown") });
   return out.map(({ titleEn, ...row }) => row);
 }
@@ -174,14 +196,13 @@ export async function resolve(ref) {
 async function loadTab(tabId) {
   const tab = TABS.find((x) => x.id === tabId);
   if (!tab) return { rows: [] };
-  const rows = (await Promise.all(tab.lists.map(async (ref) => {
-    try { const p = await listing(ref, 1); return p.items.length ? rowOf(ref, p.items) : null; } catch (_) { return null; }
-  }))).filter(Boolean);
+  const rows = await rowsOfLists(tab.lists);
   if (rows.length && tab.id === "inicio") {
     const head = rows[0].items.slice(0, SLIDE_DETAILS);
-    const details = await Promise.all(head.map(async (it) => {
-      try { return parseAnime(await pageText(SITE + "/anime/" + it.ref)); } catch (_) { return null; }
-    }));
+    const details = head.map(() => null);
+    await settledWithin(5000, Promise.all(head.map(async (it, i) => {
+      try { details[i] = parseAnime(await pageText(SITE + "/anime/" + it.ref)); } catch (_) { /* no synopsis for this one */ }
+    })));
     head.forEach((it, i) => { if (details[i]) { it.overview = details[i].overview; if (details[i].backdrop) it.backdrop = details[i].backdrop; } });
   }
   return { rows };

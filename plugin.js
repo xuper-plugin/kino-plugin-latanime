@@ -159,7 +159,7 @@ __export(streamwish_exports, {
 var kino_plugin_default = {
   id: "latanime",
   name: "LatAnime",
-  version: "0.2.3",
+  version: "0.2.4",
   apiVersion: 9,
   entry: "plugin.js",
   icon: "icon.png",
@@ -1726,6 +1726,7 @@ function makeBrowse({ kino: kino2, brand, tabs, loadTab: loadTab2, searchTitles,
 }
 
 // src/plugin.js
+globalThis.__kinoDropPendingFetches = true;
 var BRAND = "LatAnime";
 var MAX_COPIES = 8;
 var TRY_AT_ONCE = 3;
@@ -1779,18 +1780,33 @@ async function listing(ref, page = 1) {
   const html = await pageText2(url);
   return { items: parseCards(html), next: hasNext(html) ? String(page + 1) : void 0 };
 }
-var rowOf = (ref, items) => ({ id: ref, title: LISTS[ref].es, titleEn: LISTS[ref].en, ref, items });
-async function home() {
-  const refs = ["emision", "animes", "c:Pel\xEDcula", "g:accion", "g:comedia"];
-  const rows = await Promise.all(refs.map(async (ref) => {
+var rowOf = (ref, items) => ({ id: ref.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w-]/g, "-"), title: LISTS[ref].es, titleEn: LISTS[ref].en, ref, items });
+async function settledWithin(ms, work) {
+  let done = false;
+  Promise.resolve(work).then(() => {
+    done = true;
+  }, () => {
+    done = true;
+  });
+  const end = Date.now() + ms;
+  while (!done && Date.now() < end) await kino.sleep(Math.min(250, Math.max(1, end - Date.now())));
+  return done;
+}
+var ROWS_BUDGET_MS = 11e3;
+async function rowsOfLists(refs) {
+  const out = refs.map(() => null);
+  const all = Promise.all(refs.map(async (ref, i) => {
     try {
       const p = await listing(ref, 1);
-      return p.items.length ? rowOf(ref, p.items) : null;
+      out[i] = p.items.length ? rowOf(ref, p.items) : null;
     } catch (_) {
-      return null;
     }
   }));
-  const out = rows.filter(Boolean);
+  await settledWithin(ROWS_BUDGET_MS, all);
+  return out.filter(Boolean);
+}
+async function home() {
+  const out = await rowsOfLists(["emision", "animes", "c:Pel\xEDcula", "g:accion", "g:comedia"]);
   if (!out.length) throw kino.error("unavailable", "no list answered", { userMessage: t(kino, "siteDown") });
   return out.map(({ titleEn, ...row }) => row);
 }
@@ -1878,23 +1894,16 @@ async function resolve(ref) {
 async function loadTab(tabId) {
   const tab = TABS.find((x) => x.id === tabId);
   if (!tab) return { rows: [] };
-  const rows = (await Promise.all(tab.lists.map(async (ref) => {
-    try {
-      const p = await listing(ref, 1);
-      return p.items.length ? rowOf(ref, p.items) : null;
-    } catch (_) {
-      return null;
-    }
-  }))).filter(Boolean);
+  const rows = await rowsOfLists(tab.lists);
   if (rows.length && tab.id === "inicio") {
     const head = rows[0].items.slice(0, SLIDE_DETAILS);
-    const details = await Promise.all(head.map(async (it) => {
+    const details = head.map(() => null);
+    await settledWithin(5e3, Promise.all(head.map(async (it, i) => {
       try {
-        return parseAnime(await pageText2(SITE + "/anime/" + it.ref));
+        details[i] = parseAnime(await pageText2(SITE + "/anime/" + it.ref));
       } catch (_) {
-        return null;
       }
-    }));
+    })));
     head.forEach((it, i) => {
       if (details[i]) {
         it.overview = details[i].overview;
