@@ -15,6 +15,7 @@ const T = {
   brSearchFailed: ["La búsqueda no respondió. Intenta de nuevo.", "The search did not answer. Try again."],
   brNoResults: ["No encontramos nada con esas palabras.", "Nothing matched those words."],
   brSearchedBefore: ["Buscados antes", "Searched before"],
+  needResolver: ["Instala el motor de reproducción para ver esto. Es gratis y se hace una sola vez.", "Install the playback engine to watch this. It is free and done once."],
   noServer: ["Este episodio no tiene ahora un servidor que abra. Intenta de nuevo más tarde.", "This episode has no server that opens right now. Try again later."],
   siteDown: ["El sitio no responde ahora. Intenta de nuevo en un rato.", "The site is not answering right now. Try again in a moment."],
 };

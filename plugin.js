@@ -159,8 +159,8 @@ __export(streamwish_exports, {
 var kino_plugin_default = {
   id: "latanime",
   name: "LatAnime",
-  version: "0.2.4",
-  apiVersion: 9,
+  version: "0.3.0",
+  apiVersion: 20,
   entry: "plugin.js",
   icon: "icon.png",
   description: "Anime en espa\xF1ol latino, castellano o subtitulado de latanime.org, con slider, g\xE9neros y buscador.",
@@ -355,7 +355,8 @@ var kino_plugin_default = {
     "home",
     "browse",
     "episodes",
-    "resolve"
+    "resolve",
+    "screen"
   ],
   streamHosts: "any",
   categories: [
@@ -369,33 +370,6 @@ var kino_plugin_default = {
     background: "#0D0A14",
     surface: "#1A1524",
     highlight: "#D9CCFF"
-  },
-  enhancements: {
-    "14": {
-      capabilities: [
-        "screen"
-      ],
-      screen: {
-        label: "LatAnime",
-        labelEn: "LatAnime",
-        icon: "movie",
-        menuOpens: "screen",
-        opensFrom: [
-          "menu",
-          "settings"
-        ],
-        settingsButton: {
-          label: "Abrir LatAnime",
-          labelEn: "Open LatAnime"
-        },
-        settingsIn: "screen"
-      }
-    },
-    "19": {
-      capabilities: [
-        "screen"
-      ]
-    }
   },
   settings: [
     {
@@ -454,7 +428,34 @@ var kino_plugin_default = {
       hint: "Se prueba primero al reproducir; si no abre, se siguen los dem\xE1s.",
       hintEn: "It is tried first when you play; if it does not open, the others follow."
     }
-  ]
+  ],
+  consumes: {
+    resolver: {
+      repo: "xuper-plugin/kino-plugin-kino-resolver",
+      door: "resolver",
+      calls: [
+        "resolve"
+      ]
+    }
+  },
+  recommends: [
+    "xuper-plugin/kino-plugin-kino-resolver"
+  ],
+  screen: {
+    label: "LatAnime",
+    labelEn: "LatAnime",
+    icon: "movie",
+    menuOpens: "screen",
+    opensFrom: [
+      "menu",
+      "settings"
+    ],
+    settingsButton: {
+      label: "Abrir LatAnime",
+      labelEn: "Open LatAnime"
+    },
+    settingsIn: "screen"
+  }
 };
 
 // src/util/hosts.js
@@ -485,86 +486,7 @@ function urlDeclared(url) {
 
 // src/util/http.js
 var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
-var RETRY_STATUS = /* @__PURE__ */ new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 524]);
-var SLOW_ATTEMPT_MS = 3e3;
 var fetchAllowed = (kino2, url) => kino2 && kino2.fetchAnyHost === true || urlDeclared(url);
-var requestPool = (n) => ({ left: n });
-function makeRequester(kino2, { budget = 12, deadline = Date.now() + 8e3, pools = [], concurrency = Infinity, maxMs = 8e3 } = {}) {
-  let used = 0;
-  let active = 0;
-  const waiting = [];
-  const acquire = () => active < concurrency ? (active++, Promise.resolve()) : new Promise((r) => waiting.push(r));
-  const release = () => {
-    const next = waiting.shift();
-    if (next) next();
-    else active--;
-  };
-  function makeLocalError(code, message) {
-    const e = kino2.error(code, message);
-    e.local = true;
-    return e;
-  }
-  async function once(url, opts, timing = {}) {
-    if (!fetchAllowed(kino2, url)) throw makeLocalError("host_not_allowed", "host not declared: " + hostOf(url));
-    await acquire();
-    try {
-      if (used >= budget) throw makeLocalError("unavailable", "budget spent at " + url);
-      if (pools.some((p) => p.left <= 0)) throw makeLocalError("unavailable", "call allowance spent at " + url);
-      const left = deadline - Date.now();
-      if (left <= 0) throw makeLocalError("unavailable", "deadline before " + url);
-      used++;
-      for (const p of pools) p.left--;
-      const headers = { "User-Agent": UA, ...opts.headers || {} };
-      const { retry, ...rest } = opts;
-      const sentAt = Date.now();
-      try {
-        return await kino2.fetch(url, { ...rest, headers, timeoutMs: Math.min(maxMs, left) });
-      } finally {
-        timing.spentMs = Date.now() - sentAt;
-      }
-    } finally {
-      release();
-    }
-  }
-  let degraded = false;
-  const roomToRetry = () => used < budget && !pools.some((p) => p.left <= 0) && deadline - Date.now() > 600;
-  async function send(url, opts = {}) {
-    const timing = {};
-    try {
-      const r = await once(url, opts, timing);
-      if (opts.retry === false || !RETRY_STATUS.has(r.status)) return r;
-      if (roomToRetry() && timing.spentMs < SLOW_ATTEMPT_MS) {
-        await kino2.sleep(600);
-        return once(url, opts);
-      }
-      return r;
-    } catch (e) {
-      if (opts.retry === false || e && (e.local || e.code === "host_not_allowed")) throw e;
-      if (roomToRetry() && !(timing.spentMs >= SLOW_ATTEMPT_MS)) {
-        await kino2.sleep(600);
-        return once(url, opts);
-      }
-      throw e;
-    }
-  }
-  async function req(url, opts = {}) {
-    const r = await send(url, opts);
-    if (r && (r.status === 429 || r.status >= 500)) degraded = true;
-    return r;
-  }
-  req.degraded = () => degraded;
-  req.used = () => used;
-  req.exhausted = () => used >= budget || deadline - Date.now() <= 0 || pools.some((p) => p.left <= 0);
-  req.left = () => Math.max(0, deadline - Date.now());
-  return req;
-}
-var hostOf = (url) => {
-  try {
-    return new URL(url).hostname;
-  } catch (_) {
-    return String(url).slice(0, 80);
-  }
-};
 
 // src/extractors/streamwish.js
 var HOSTS3 = ["hlswish.com", "streamwish.com", "streamwish.to", "strwish.com", "wishembed.com", "filelions.com", "hglink.to", "vibuxer.com"];
@@ -1248,6 +1170,7 @@ var T = {
   brSearchFailed: ["La b\xFAsqueda no respondi\xF3. Intenta de nuevo.", "The search did not answer. Try again."],
   brNoResults: ["No encontramos nada con esas palabras.", "Nothing matched those words."],
   brSearchedBefore: ["Buscados antes", "Searched before"],
+  needResolver: ["Instala el motor de reproducci\xF3n para ver esto. Es gratis y se hace una sola vez.", "Install the playback engine to watch this. It is free and done once."],
   noServer: ["Este episodio no tiene ahora un servidor que abra. Intenta de nuevo m\xE1s tarde.", "This episode has no server that opens right now. Try again later."],
   siteDown: ["El sitio no responde ahora. Intenta de nuevo en un rato.", "The site is not answering right now. Try again in a moment."]
 };
@@ -1850,7 +1773,60 @@ function hostName(link) {
     return "servidor";
   }
 }
+var RESOLVER_REPO = "xuper-plugin/kino-plugin-kino-resolver";
+var SUPPORT_URL = "https://ko-fi.com/xuperplugins";
+var HLS = "application/vnd.apple.mpegurl";
+var CAPTURE_MS3 = 2e4;
+async function resolverInstalled() {
+  try {
+    await kino.plugins.call("resolver", "normalizeHost", { url: "https://probe.invalid/" });
+    return true;
+  } catch (e) {
+    return (e && e.code) !== "provider_missing";
+  }
+}
+function supportNode(device) {
+  if (device === "tv") return { type: "QrImage", value: SUPPORT_URL, size: "large", labelText: "Si te gusta mi trabajo, escan\xE9alo y ap\xF3yame", labelTextEn: "If you like my work, scan it and support me" };
+  return { type: "ElevatedButton", key: "donate", icon: "heart", labelText: "Si te gusta mi trabajo, ap\xF3yame", labelTextEn: "If you like my work, support me", onPressed: { go: { url: { href: SUPPORT_URL } } } };
+}
+function installGateView(device) {
+  return {
+    type: "Scaffold",
+    key: "latanime-install",
+    body: { type: "SingleChildScrollView", key: "installScroll", children: [
+      { type: "Column", padding: 24, gap: 16, crossAxisAlignment: "stretch", children: [
+        { type: "Text", text: "Necesitas el motor de reproducci\xF3n", textEn: "You need the playback engine", style: "h3" },
+        { type: "Text", color: "secondary", text: "LatAnime reproduce a trav\xE9s de Kino Resolver (gratis). Inst\xE1lalo una vez y sirve para este y para otros plugins de sitios.", textEn: "LatAnime plays through Kino Resolver (free). Install it once and it works here and in other site plugins." },
+        { type: "ElevatedButton", key: "installResolver", labelText: "Instalar Kino Resolver", labelTextEn: "Install Kino Resolver", onPressed: { go: { installPlugin: { repo: RESOLVER_REPO } } } },
+        supportNode(device)
+      ] }
+    ] }
+  };
+}
+function toStream(s) {
+  const headers = { "User-Agent": UA };
+  if (s.referer) headers.Referer = s.referer;
+  if (Array.isArray(s.headers)) {
+    for (const h of s.headers) if (h && h.name) headers[h.name] = String(h.value);
+  } else if (s.headers && typeof s.headers === "object") Object.assign(headers, s.headers);
+  return { url: s.url, mime: s.kind === "hls" ? HLS : /\.mp4(\?|$)/i.test(s.url) ? "video/mp4" : HLS, headers };
+}
+async function captureOpen(link, budget) {
+  if (!kino.browser || typeof kino.browser.capture !== "function" || !budget || budget.captures <= 0) return null;
+  budget.captures -= 1;
+  try {
+    const page = await kino.browser.capture(link, { timeoutMs: CAPTURE_MS3, match: "\\.m3u8|\\.mp4", headers: { Referer: SITE + "/" } });
+    const media = page && page.media || [];
+    const best = media.find((x) => /m3u8/i.test(x.url)) || media[0];
+    if (!best) return null;
+    return { url: best.url, mime: best.mime || (/\.mp4/i.test(best.url) ? "video/mp4" : HLS), headers: best.headers || { Referer: link } };
+  } catch (e) {
+    kino.log("[latanime] capture", e && e.code || "failed");
+    return null;
+  }
+}
 async function resolve(ref) {
+  if (!await resolverInstalled()) throw kino.error("unavailable", "resolver missing", { userMessage: t(kino, "needResolver") });
   const [slug, pick] = String(ref || "").split("|");
   if (!/^[\w-]{1,160}$/.test(slug)) throw kino.error("not_found");
   let preferred = "";
@@ -1860,9 +1836,19 @@ async function resolve(ref) {
   }
   const servers = serversOf(await pageText2(SITE + "/ver/" + slug), preferred === "auto" ? "" : preferred);
   if (!servers.length) throw kino.error("not_found", "no servers", { userMessage: t(kino, "noServer") });
-  const pool = requestPool(54);
   const deadline = Date.now() + CALL_MS2;
-  const open = (s) => extractorFor(s.link).extract(s.link, makeRequester(kino, { budget: 6, deadline, pools: [pool], maxMs: 8e3 }), kino).catch(() => null);
+  const budget = { captures: 2 };
+  const open = async (s) => {
+    try {
+      const res = await kino.plugins.call("resolver", "resolve", { url: s.link, referer: SITE + "/" });
+      const st = (res && Array.isArray(res.streams) ? res.streams : []).find((x) => x && x.url);
+      if (st) return toStream(st);
+      if (res && res.error === "needs_browser") return captureOpen(s.link, budget);
+    } catch (_) {
+    }
+    if (s.kind === "savefiles") return captureOpen(s.link, budget);
+    return null;
+  };
   if (pick !== void 0) {
     const s = servers.find((x) => String(x.n) === pick);
     const stream = s && await open(s);
@@ -1929,7 +1915,9 @@ var browseScreen = () => browseInstance ?? (browseInstance = makeBrowse({
 }));
 async function screen(ctx) {
   await null;
-  return browseScreen().view(ctx && typeof ctx === "object" ? ctx : {});
+  const c = ctx && typeof ctx === "object" ? ctx : {};
+  if (!(c.installed && c.installed[RESOLVER_REPO])) return installGateView(c.device);
+  return browseScreen().view(c);
 }
 async function screenEvent(ev) {
   await null;

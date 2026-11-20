@@ -3,7 +3,7 @@
 // A server is an embed page of a third-party player: the extractors open it and find the stream.
 
 import { extractorFor } from "./extractors/index.js";
-import { makeRequester, requestPool, UA } from "./util/http.js";
+import { UA } from "./util/http.js";
 import { SITE, parseCards, hasNext, parseAnime, parsePlayers, seriesOfEpisode } from "./site.js";
 import { makeBrowse } from "./browse/index.js";
 import { t } from "./i18n.js";
@@ -152,16 +152,84 @@ export function serversOf(html, preferred = "") {
 const labelOf = (s) => (s.name + " · " + hostName(s.link)).slice(0, 48);
 function hostName(link) { try { return new URL(link).hostname.replace(/^www\./, ""); } catch (_) { return "servidor"; } }
 
+// ---- Kino Resolver install gate, and the resolver/hidden-browser that open each server ----
+
+const RESOLVER_REPO = "xuper-plugin/kino-plugin-kino-resolver";
+const SUPPORT_URL = "https://ko-fi.com/xuperplugins";
+const HLS = "application/vnd.apple.mpegurl";
+const CAPTURE_MS = 20000;
+
+/** True when the shared kino-resolver is installed (a cheap door probe; only provider_missing means "not installed"). */
+async function resolverInstalled() {
+  try { await kino.plugins.call("resolver", "normalizeHost", { url: "https://probe.invalid/" }); return true; }
+  catch (e) { return (e && e.code) !== "provider_missing"; }
+}
+
+/** The donate affordance under the install button: a QR on a TV (a link is hard to open there), a heart button elsewhere. */
+function supportNode(device) {
+  if (device === "tv") return { type: "QrImage", value: SUPPORT_URL, size: "large", labelText: "Si te gusta mi trabajo, escanéalo y apóyame", labelTextEn: "If you like my work, scan it and support me" };
+  return { type: "ElevatedButton", key: "donate", icon: "heart", labelText: "Si te gusta mi trabajo, apóyame", labelTextEn: "If you like my work, support me", onPressed: { go: { url: { href: SUPPORT_URL } } } };
+}
+
+/** The install gate: the first screen while the shared kino-resolver (the engine LatAnime plays through) is not installed. */
+function installGateView(device) {
+  return { type: "Scaffold", key: "latanime-install",
+    body: { type: "SingleChildScrollView", key: "installScroll", children: [
+      { type: "Column", padding: 24, gap: 16, crossAxisAlignment: "stretch", children: [
+        { type: "Text", text: "Necesitas el motor de reproducción", textEn: "You need the playback engine", style: "h3" },
+        { type: "Text", color: "secondary", text: "LatAnime reproduce a través de Kino Resolver (gratis). Instálalo una vez y sirve para este y para otros plugins de sitios.", textEn: "LatAnime plays through Kino Resolver (free). Install it once and it works here and in other site plugins." },
+        { type: "ElevatedButton", key: "installResolver", labelText: "Instalar Kino Resolver", labelTextEn: "Install Kino Resolver", onPressed: { go: { installPlugin: { repo: RESOLVER_REPO } } } },
+        supportNode(device),
+      ] },
+    ] },
+  };
+}
+
+/** A resolver stream as a Kino copy: `{ url, mime, headers }`, HLS unless the url ends in .mp4. */
+function toStream(s) {
+  const headers = { "User-Agent": UA };
+  if (s.referer) headers.Referer = s.referer;
+  if (Array.isArray(s.headers)) { for (const h of s.headers) if (h && h.name) headers[h.name] = String(h.value); }
+  else if (s.headers && typeof s.headers === "object") Object.assign(headers, s.headers);
+  return { url: s.url, mime: s.kind === "hls" ? HLS : (/\.mp4(\?|$)/i.test(s.url) ? "video/mp4" : HLS), headers };
+}
+
+/** The hidden browser opens the embed and Kino hands back the media it requested; null when nothing plays or the budget is spent. */
+async function captureOpen(link, budget) {
+  if (!kino.browser || typeof kino.browser.capture !== "function" || !budget || budget.captures <= 0) return null;
+  budget.captures -= 1;
+  try {
+    const page = await kino.browser.capture(link, { timeoutMs: CAPTURE_MS, match: "\\.m3u8|\\.mp4", headers: { Referer: SITE + "/" } });
+    const media = (page && page.media) || [];
+    const best = media.find((x) => /m3u8/i.test(x.url)) || media[0];
+    if (!best) return null;
+    return { url: best.url, mime: best.mime || (/\.mp4/i.test(best.url) ? "video/mp4" : HLS), headers: best.headers || { Referer: link } };
+  } catch (e) { kino.log("[latanime] capture", (e && e.code) || "failed"); return null; }
+}
+
 export async function resolve(ref) {
+  if (!(await resolverInstalled())) throw kino.error("unavailable", "resolver missing", { userMessage: t(kino, "needResolver") });
   const [slug, pick] = String(ref || "").split("|");
   if (!/^[\w-]{1,160}$/.test(slug)) throw kino.error("not_found");
   let preferred = "";
   try { preferred = String(kino.config.get("server") || ""); } catch (_) { /* the usual order */ }
   const servers = serversOf(await pageText(SITE + "/ver/" + slug), preferred === "auto" ? "" : preferred);
   if (!servers.length) throw kino.error("not_found", "no servers", { userMessage: t(kino, "noServer") });
-  const pool = requestPool(54);
   const deadline = Date.now() + CALL_MS;
-  const open = (s) => extractorFor(s.link).extract(s.link, makeRequester(kino, { budget: 6, deadline, pools: [pool], maxMs: 8000 }), kino).catch(() => null);
+  // Each server is opened through the shared kino-resolver; a host it cannot reach inline (e.g. savefiles behind Cloudflare) falls
+  // to Kino's hidden browser, with a small shared budget so one slow capture does not hold the whole attempt back.
+  const budget = { captures: 2 };
+  const open = async (s) => {
+    try {
+      const res = await kino.plugins.call("resolver", "resolve", { url: s.link, referer: SITE + "/" });
+      const st = (res && Array.isArray(res.streams) ? res.streams : []).find((x) => x && x.url);
+      if (st) return toStream(st);
+      if (res && res.error === "needs_browser") return captureOpen(s.link, budget);
+    } catch (_) { /* provider_missing / failed: a known capture host may still open in the hidden browser */ }
+    // savefiles sits behind Cloudflare, which the inline-only resolver cannot pass: the hidden browser opens it.
+    if (s.kind === "savefiles") return captureOpen(s.link, budget);
+    return null;
+  };
 
   // A copy the person asked for: resolve just that one.
   if (pick !== undefined) {
@@ -237,7 +305,9 @@ const browseScreen = () => (browseInstance ??= makeBrowse({
 /** `screen(ctx)`: the plugin's own browse screen (a pure view: it draws what it holds and never waits for the site). */
 export async function screen(ctx) {
   await null;
-  return browseScreen().view(ctx && typeof ctx === "object" ? ctx : {});
+  const c = ctx && typeof ctx === "object" ? ctx : {};
+  if (!(c.installed && c.installed[RESOLVER_REPO])) return installGateView(c.device);
+  return browseScreen().view(c);
 }
 
 /** `screenEvent(ev)`: the screen's events (its timers load a tab or a search, one per call). */
