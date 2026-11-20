@@ -1,7 +1,7 @@
 {
- "id": "latanime",
- "name": "LatAnime",
- "version": "0.3.0",
+ "id": "todoanime",
+ "name": "TodoAnime",
+ "version": "0.3.1",
  "apiVersion": 20,
  "entry": "plugin.js",
  "icon": "icon.png",
@@ -284,8 +284,8 @@
   "xuper-plugin/kino-plugin-kino-resolver"
  ],
  "screen": {
-  "label": "LatAnime",
-  "labelEn": "LatAnime",
+  "label": "TodoAnime",
+  "labelEn": "TodoAnime",
   "icon": "movie",
   "menuOpens": "screen",
   "opensFrom": [
@@ -293,8 +293,8 @@
    "settings"
   ],
   "settingsButton": {
-   "label": "Abrir LatAnime",
-   "labelEn": "Open LatAnime"
+   "label": "Abrir TodoAnime",
+   "labelEn": "Open TodoAnime"
   },
   "settingsIn": "screen"
  }

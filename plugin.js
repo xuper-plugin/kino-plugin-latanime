@@ -157,9 +157,9 @@ __export(streamwish_exports, {
 
 // kino-plugin.json
 var kino_plugin_default = {
-  id: "latanime",
-  name: "LatAnime",
-  version: "0.3.0",
+  id: "todoanime",
+  name: "TodoAnime",
+  version: "0.3.1",
   apiVersion: 20,
   entry: "plugin.js",
   icon: "icon.png",
@@ -442,8 +442,8 @@ var kino_plugin_default = {
     "xuper-plugin/kino-plugin-kino-resolver"
   ],
   screen: {
-    label: "LatAnime",
-    labelEn: "LatAnime",
+    label: "TodoAnime",
+    labelEn: "TodoAnime",
     icon: "movie",
     menuOpens: "screen",
     opensFrom: [
@@ -451,8 +451,8 @@ var kino_plugin_default = {
       "settings"
     ],
     settingsButton: {
-      label: "Abrir LatAnime",
-      labelEn: "Open LatAnime"
+      label: "Abrir TodoAnime",
+      labelEn: "Open TodoAnime"
     },
     settingsIn: "screen"
   }
@@ -1184,10 +1184,6 @@ function t(kino2, key, vars) {
   return String(kino2 && kino2.lang || "").toLowerCase().startsWith("es") ? w.es : w.en;
 }
 
-// src/browse/logo.js
-var LOGO_ASPECT = "417:120";
-var LOGO_DATA = "data:image/png;base64,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";
-
 // src/browse/view.js
 var POLL_MS = 1500;
 var IMAGE_HEADERS = { Referer: SITE + "/", "User-Agent": UA };
@@ -1243,17 +1239,7 @@ var rail = (r, key, titleOverride) => ({
   size: "medium",
   headers: IMAGE_HEADERS
 });
-var brandNode = (brand) => ({
-  type: "Image",
-  key: "logo",
-  url: LOGO_DATA,
-  aspect: LOGO_ASPECT,
-  fit: "contain",
-  h: 40,
-  alt: brand,
-  altEn: brand,
-  fallback: { type: "Text", text: brand, textEn: brand, style: "h4" }
-});
+var brandNode = (brand) => ({ type: "Text", key: "logo", text: brand, textEn: brand, style: "h4" });
 var tabBar = (tabs, active) => ({ type: "TabBar", key: "tabs", divider: false, value: active, onChanged: "tab", tabs: tabs.map((t2) => ({ value: t2.id, ...tabLabel(t2) })) });
 function browseView({ brand, tabs, tab, data, recent, pending, failed, canPlay = false, device = "phone" }) {
   const tv = device === "tv";
@@ -1650,7 +1636,7 @@ function makeBrowse({ kino: kino2, brand, tabs, loadTab: loadTab2, searchTitles,
 
 // src/plugin.js
 globalThis.__kinoDropPendingFetches = true;
-var BRAND = "LatAnime";
+var BRAND = "TodoAnime";
 var MAX_COPIES = 8;
 var TRY_AT_ONCE = 3;
 var CALL_MS2 = 16e3;
@@ -1792,11 +1778,11 @@ function supportNode(device) {
 function installGateView(device) {
   return {
     type: "Scaffold",
-    key: "latanime-install",
+    key: "todoanime-install",
     body: { type: "SingleChildScrollView", key: "installScroll", children: [
       { type: "Column", padding: 24, gap: 16, crossAxisAlignment: "stretch", children: [
         { type: "Text", text: "Necesitas el motor de reproducci\xF3n", textEn: "You need the playback engine", style: "h3" },
-        { type: "Text", color: "secondary", text: "LatAnime reproduce a trav\xE9s de Kino Resolver (gratis). Inst\xE1lalo una vez y sirve para este y para otros plugins de sitios.", textEn: "LatAnime plays through Kino Resolver (free). Install it once and it works here and in other site plugins." },
+        { type: "Text", color: "secondary", text: "TodoAnime reproduce a trav\xE9s de Kino Resolver (gratis). Inst\xE1lalo una vez y sirve para este y para otros plugins de sitios.", textEn: "TodoAnime plays through Kino Resolver (free). Install it once and it works here and in other site plugins." },
         { type: "ElevatedButton", key: "installResolver", labelText: "Instalar Kino Resolver", labelTextEn: "Install Kino Resolver", onPressed: { go: { installPlugin: { repo: RESOLVER_REPO } } } },
         supportNode(device)
       ] }
@@ -1821,7 +1807,7 @@ async function captureOpen(link, budget) {
     if (!best) return null;
     return { url: best.url, mime: best.mime || (/\.mp4/i.test(best.url) ? "video/mp4" : HLS), headers: best.headers || { Referer: link } };
   } catch (e) {
-    kino.log("[latanime] capture", e && e.code || "failed");
+    kino.log("[todoanime] capture", e && e.code || "failed");
     return null;
   }
 }

@@ -1,4 +1,4 @@
-// LatAnime: anime of latanime.org in Spanish (Latino, Castellano or subtitled). The site is plain HTML, read by site.js. Kino
+// TodoAnime: anime of latanime.org in Spanish (Latino, Castellano or subtitled). The site is plain HTML, read by site.js. Kino
 // gets the usual functions (home, browse, search, episodes, resolve) and its own browse screen with a slider, tabs and search.
 // A server is an embed page of a third-party player: the extractors open it and find the stream.
 
@@ -11,7 +11,7 @@ import { t } from "./i18n.js";
 // Kino waits for every request a call left running before it delivers the call's answer; ask it to drop them once the call settles.
 globalThis.__kinoDropPendingFetches = true;
 
-const BRAND = "LatAnime";
+const BRAND = "TodoAnime";
 const MAX_COPIES = 8;
 const TRY_AT_ONCE = 3; // servers opened together when an episode is played
 const CALL_MS = 16000;
@@ -171,13 +171,13 @@ function supportNode(device) {
   return { type: "ElevatedButton", key: "donate", icon: "heart", labelText: "Si te gusta mi trabajo, apóyame", labelTextEn: "If you like my work, support me", onPressed: { go: { url: { href: SUPPORT_URL } } } };
 }
 
-/** The install gate: the first screen while the shared kino-resolver (the engine LatAnime plays through) is not installed. */
+/** The install gate: the first screen while the shared kino-resolver (the engine TodoAnime plays through) is not installed. */
 function installGateView(device) {
-  return { type: "Scaffold", key: "latanime-install",
+  return { type: "Scaffold", key: "todoanime-install",
     body: { type: "SingleChildScrollView", key: "installScroll", children: [
       { type: "Column", padding: 24, gap: 16, crossAxisAlignment: "stretch", children: [
         { type: "Text", text: "Necesitas el motor de reproducción", textEn: "You need the playback engine", style: "h3" },
-        { type: "Text", color: "secondary", text: "LatAnime reproduce a través de Kino Resolver (gratis). Instálalo una vez y sirve para este y para otros plugins de sitios.", textEn: "LatAnime plays through Kino Resolver (free). Install it once and it works here and in other site plugins." },
+        { type: "Text", color: "secondary", text: "TodoAnime reproduce a través de Kino Resolver (gratis). Instálalo una vez y sirve para este y para otros plugins de sitios.", textEn: "TodoAnime plays through Kino Resolver (free). Install it once and it works here and in other site plugins." },
         { type: "ElevatedButton", key: "installResolver", labelText: "Instalar Kino Resolver", labelTextEn: "Install Kino Resolver", onPressed: { go: { installPlugin: { repo: RESOLVER_REPO } } } },
         supportNode(device),
       ] },
@@ -204,7 +204,7 @@ async function captureOpen(link, budget) {
     const best = media.find((x) => /m3u8/i.test(x.url)) || media[0];
     if (!best) return null;
     return { url: best.url, mime: best.mime || (/\.mp4/i.test(best.url) ? "video/mp4" : HLS), headers: best.headers || { Referer: link } };
-  } catch (e) { kino.log("[latanime] capture", (e && e.code) || "failed"); return null; }
+  } catch (e) { kino.log("[todoanime] capture", (e && e.code) || "failed"); return null; }
 }
 
 export async function resolve(ref) {

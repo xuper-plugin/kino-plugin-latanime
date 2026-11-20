@@ -1,7 +1,6 @@
 // The browse screen's trees: a pure view of what index.js holds. A tab that is not in yet draws skeletons shaped like what
 // will replace them, so nothing jumps when the rows arrive. Every text is in both languages.
 import { both } from "../i18n.js";
-import { LOGO_DATA, LOGO_ASPECT } from "./logo.js";
 import { SITE } from "../site.js";
 import { UA } from "../util/http.js";
 
@@ -61,10 +60,7 @@ const rail = (r, key, titleOverride) => ({
 });
 
 /** The plugin's logo as the bar's title; the name itself where the logo cannot be drawn (an older Kino, a refused picture). */
-const brandNode = (brand) => ({
-  type: "Image", key: "logo", url: LOGO_DATA, aspect: LOGO_ASPECT, fit: "contain", h: 40, alt: brand, altEn: brand,
-  fallback: { type: "Text", text: brand, textEn: brand, style: "h4" },
-});
+const brandNode = (brand) => ({ type: "Text", key: "logo", text: brand, textEn: brand, style: "h4" });
 
 const tabBar = (tabs, active) => ({ type: "TabBar", key: "tabs", divider: false, value: active, onChanged: "tab", tabs: tabs.map((t) => ({ value: t.id, ...tabLabel(t) })) });
 
