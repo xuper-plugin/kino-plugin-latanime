@@ -5,14 +5,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "../sdk/validate.mjs";
 import { parseCards, hasNext, parseAnime, parsePlayers, unwrap, seriesOfEpisode, langOf } from "../src/site.js";
-import { listUrl, TABS, serversOf, metaTitle, metaType } from "../src/plugin.js";
+import { listUrl, TABS, serversOf, kindOf, metaTitle, metaType } from "../src/plugin.js";
 import { makeMetaCache } from "../src/browse/metaCache.js";
 import { tabOf, slidesOf, recentOf } from "../src/browse/model.js";
 import { browseView, searchView } from "../src/browse/view.js";
-import { wurlOf } from "../src/extractors/mixdrop.js";
-import { srcOf } from "../src/extractors/mp4upload.js";
-import { formOf } from "../src/extractors/hexload.js";
-import { extractorFor } from "../src/extractors/index.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -81,14 +77,12 @@ test("listUrl builds the site's listing addresses, with the page", () => {
   assert.equal(listUrl("nope"), null);
 });
 
-test("the player pages' readers", () => {
-  assert.equal(wurlOf('MDCore.wurl="//n1.mxcontent.net/v2/a.mp4?s=1"'), "//n1.mxcontent.net/v2/a.mp4?s=1");
-  assert.equal(wurlOf("var title = wurl is here"), null);
-  assert.equal(srcOf('player.src({ type: "video/mp4", src: "https://a3.mp4upload.com:183/d/x/video.mp4" });'), "https://a3.mp4upload.com:183/d/x/video.mp4");
-  assert.deepEqual(formOf("$.ajax({ data: {op: 'download', file_code: 'abc123', hash: 'x-y'}, success: function"), { op: "download", file_code: "abc123", hash: "x-y" });
-  for (const u of ["https://mixdrop.top/e/x", "https://www.mp4upload.com/embed-x.html", "https://hexload.com/embed-x", "https://savefiles.com/e/x", "https://playmogo.com/e/x", "https://voe.sx/e/x", "https://bysewihe.com/e/x"]) {
-    assert.ok(extractorFor(u) || u.includes("bysewihe"), u); // bysewihe.com is a Byse mirror not listed yet
-  }
+test("kindOf names a server by its host family (the names the server setting uses); an unknown host keeps its own name", () => {
+  const cases = { "https://hglink.to/e/x": "streamwish", "https://mivalyo.com/v/x": "vidhide", "https://www.mp4upload.com/embed-x.html": "mp4upload",
+    "https://mxdrop.to/e/x": "mixdrop", "https://mixdrop.is/e/x": "mixdrop", "https://luluvdo.com/e/x": "lulu", "https://ok.ru/videoembed/1": "okru",
+    "https://voe.sx/e/x": "voe", "https://bysekoze.com/e/x": "byse", "https://dsvplay.com/e/x": "dood", "https://savefiles.com/e/x": "savefiles",
+    "https://listeamed.net/e/x": "listeamed.net" };
+  for (const [u, k] of Object.entries(cases)) assert.equal(kindOf(u), k, u);
 });
 
 const item = (n, extra = {}) => ({ id: "a" + n, ref: "a" + n, title: "Anime " + n, kind: "series", poster: "https://x.example/p" + n + ".jpg", ...extra });
@@ -149,12 +143,17 @@ test("metaType asks TMDB for a movie when the site calls the title a Pelicula", 
   assert.equal(metaType("Psyren Latino"), "series");
 });
 
-test("serversOf puts the preferred server first and keeps the usual order otherwise", () => {
+test("serversOf keeps every server, puts the preferred one first, and orders the rest by group, learned score and the usual order", () => {
   const b64 = (u) => btoa(u);
   const html = ["https://mixdrop.top/e/a", "https://www.mp4upload.com/embed-b.html", "https://hexload.com/embed-c", "https://unknown.example/e/z"]
     .map((u, i) => `<li id="play-video"><a class="play-video" data-player="${b64(u)}">s${i}</a></li>`).join("");
-  assert.deepEqual(serversOf(html).map((s) => s.kind), ["mp4upload", "mixdrop", "hexload"]);
-  assert.deepEqual(serversOf(html, "hexload").map((s) => s.kind), ["hexload", "mp4upload", "mixdrop"]);
+  // Nothing is dropped: the unknown host is kept, after the ones the resolver reads with plain requests.
+  assert.deepEqual(serversOf(html).map((s) => s.kind), ["mp4upload", "mixdrop", "hexload", "unknown.example"]);
+  assert.deepEqual(serversOf(html, "hexload").map((s) => s.kind), ["hexload", "mp4upload", "mixdrop", "unknown.example"]);
+  // The learned ranking reorders inside a group, never above the preferred server nor a browser-only host above a plain one.
+  const score = (k) => ({ hexload: 0.9, mp4upload: 0.2, "unknown.example": 0.99 }[k] ?? 0.5);
+  assert.deepEqual(serversOf(html, "", score).map((s) => s.kind), ["hexload", "mixdrop", "mp4upload", "unknown.example"]);
+  assert.equal(serversOf(html, "mp4upload", score)[0].kind, "mp4upload", "the preferred server still goes first");
 });
 
 test("the slider's key carries its slide count, so a pager is never reused for a different number of slides", () => {

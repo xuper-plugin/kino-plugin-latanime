@@ -1,8 +1,7 @@
 // TodoAnime: anime of latanime.org in Spanish (Latino, Castellano or subtitled). The site is plain HTML, read by site.js. Kino
 // gets the usual functions (home, browse, search, episodes, resolve) and its own browse screen with a slider, tabs and search.
-// A server is an embed page of a third-party player: the extractors open it and find the stream.
+// A server is an embed page of a third-party player: the shared Kino Resolver opens it (the hidden browser when it can't).
 
-import { extractorFor } from "./extractors/index.js";
 import { UA } from "./util/http.js";
 import { SITE, parseCards, hasNext, parseAnime, parsePlayers, seriesOfEpisode } from "./site.js";
 import { makeBrowse } from "./browse/index.js";
@@ -132,21 +131,66 @@ export async function episodes(ref) {
 // ---- servers ----
 
 // The servers by how reliably they open, best first; one that is not here goes last.
-const PREFER = ["streamwish", "vidhide", "mp4upload", "mixdrop", "uqload", "hexload", "okru", "voe", "byse", "streamtape", "dood", "savefiles"];
+const PREFER = ["streamwish", "vidhide", "mp4upload", "mixdrop", "uqload", "hexload", "okru", "lulu", "voe", "byse", "streamtape", "dood", "savefiles"];
+// These need Kino's hidden browser (voe's human check, savefiles behind Cloudflare), as does a host nobody knows: they go
+// after the ones the resolver reads with plain requests, whatever their score.
+const NEEDS_BROWSER = new Set(["voe", "savefiles"]);
 
-const understood = (link) => extractorFor(link) !== null;
+// A server's family, by its host: the names the "server" setting and the ranking use. A host not listed keeps its own name.
+const FAMILIES = [
+  ["streamwish", /streamwish|hglink|hlswish|vibuxer|swdyu|embedwish|playerwish|iplayerhls|wishembed/i],
+  ["vidhide", /vidhide|mivalyo|morencius|callistanise|filelions|smoothpre|minochinos|dintezuvio/i],
+  ["mp4upload", /mp4upload/i], ["mixdrop", /mixdrop|mxdrop/i], ["uqload", /uqload/i], ["hexload", /hexload/i],
+  ["okru", /(^|\.)ok\.ru$|okru/i], ["lulu", /luluvdo|lulustream|luluvid/i], ["voe", /(^|\.)voe\.sx$|voe/i],
+  ["byse", /filemoon|bysekoze|bysewihe|byse/i], ["streamtape", /streamtape/i],
+  ["dood", /dood|dsvplay|d0+d|ds2play|playmogo/i], ["savefiles", /savefiles/i], ["goodstream", /goodstream/i],
+  ["vimeos", /vimeos/i], ["fastream", /fastream/i], ["nupload", /nupload/i],
+];
+export function kindOf(link) {
+  const host = hostName(link);
+  const hit = FAMILIES.find(([, rx]) => rx.test(host));
+  return hit ? hit[0] : host;
+}
 
 function rankOf(name) {
   const i = PREFER.indexOf(name);
   return i < 0 ? PREFER.length : i;
 }
 
-/** The episode's servers, best first, as `[{ link, name, n }]`; `n` is the position a lazy copy's ref names. */
-export function serversOf(html, preferred = "") {
-  const list = parsePlayers(html).filter((p) => understood(p.link)).map((p, n) => ({ ...p, n, kind: extractorFor(p.link).name }));
-  // The person's preferred server first, then the usual order.
-  const rank = (k) => (k === preferred ? -1 : rankOf(k));
-  return list.sort((a, b) => rank(a.kind) - rank(b.kind) || a.n - b.n).slice(0, MAX_COPIES);
+// ---- what each server has done for this person (the ranking) ----
+// Every server opened in a resolve counts a success or a failure (a stream that played its first bytes, or nothing),
+// Laplace-smoothed ((ok+1)/(ok+fail+2), unknown = 0.5) and halved past STATS_CAP so a server that recovers climbs back.
+// Kept in kino.storage, which follows the person to their other devices.
+const STATS_KEY = "srvStats";
+const STATS_CAP = 24;
+export function serverScores() {
+  let all = {};
+  try { all = JSON.parse(kino.storage.get(STATS_KEY) || "{}") || {}; } catch (_) { all = {}; }
+  return (name) => { const s = all[name] || { ok: 0, fail: 0 }; return (s.ok + 1) / (s.ok + s.fail + 2); };
+}
+function noteServer(name, ok) {
+  try {
+    const all = JSON.parse(kino.storage.get(STATS_KEY) || "{}") || {};
+    const s = all[name] || { ok: 0, fail: 0 };
+    s[ok ? "ok" : "fail"] += 1;
+    if (s.ok + s.fail > STATS_CAP) { s.ok = Math.round(s.ok / 2); s.fail = Math.round(s.fail / 2); }
+    all[name] = s;
+    kino.storage.set(STATS_KEY, JSON.stringify(all));
+  } catch (_) { /* the stats are a nicety */ }
+}
+
+/**
+ * The episode's servers, best first, as `[{ link, name, n, kind }]`; `n` is the position a lazy copy's ref names. Every
+ * https link the page lists is kept (the resolver reads far more hosts than this plugin ever did, and the hidden browser
+ * takes the rest), in this order: the person's preferred server; then the ones read with plain requests before the ones that
+ * need the hidden browser; inside each, the server that has loaded best for this person ([score]); then [PREFER]; then the page.
+ */
+export function serversOf(html, preferred = "", score = null) {
+  const list = parsePlayers(html).map((p, n) => ({ ...p, n, kind: kindOf(p.link) }));
+  const pref = (k) => (preferred && k === preferred ? 0 : 1);
+  const tier = (k) => (NEEDS_BROWSER.has(k) || !PREFER.includes(k) ? 1 : 0);
+  const learned = (k) => (score ? -score(k) : 0);
+  return list.sort((a, b) => pref(a.kind) - pref(b.kind) || tier(a.kind) - tier(b.kind) || learned(a.kind) - learned(b.kind) || rankOf(a.kind) - rankOf(b.kind) || a.n - b.n).slice(0, MAX_COPIES);
 }
 
 const labelOf = (s) => (s.name + " · " + hostName(s.link)).slice(0, 48);
@@ -194,6 +238,21 @@ function toStream(s) {
   return { url: s.url, mime: s.kind === "hls" ? HLS : (/\.mp4(\?|$)/i.test(s.url) ? "video/mp4" : HLS), headers };
 }
 
+/** Whether a resolved stream answers: a 2 KB peek (maxBytes + Range, so a whole-file mp4 is not downloaded); an HLS playlist
+ *  must start like one; a 401/403 (a token tied to the player) is trusted. A dead CDN node (an mp4upload file timing out,
+ *  measured 2026-11-22) would otherwise reach the player as the first copy. Never throws. */
+async function answers(stream) {
+  try {
+    const r = await kino.fetch(stream.url, { headers: { ...stream.headers, Range: "bytes=0-2047" }, timeoutMs: 5000, maxBytes: 2048 });
+    if (r.status === 401 || r.status === 403) return true;
+    if (!r.ok) return false;
+    // Only a real playlist address must read like one (streamtape's get_video?… is an mp4 behind a token).
+    return !/\.m3u8(\?|$)/i.test(stream.url) || /^\s*#EXTM3U/.test(r.text() || "");
+  } catch (e) {
+    return !!(e && (e.code === "host_not_allowed" || e.code === "too_large"));
+  }
+}
+
 /** The hidden browser opens the embed and Kino hands back the media it requested; null when nothing plays or the budget is spent. */
 async function captureOpen(link, budget) {
   if (!kino.browser || typeof kino.browser.capture !== "function" || !budget || budget.captures <= 0) return null;
@@ -213,22 +272,26 @@ export async function resolve(ref) {
   if (!/^[\w-]{1,160}$/.test(slug)) throw kino.error("not_found");
   let preferred = "";
   try { preferred = String(kino.config.get("server") || ""); } catch (_) { /* the usual order */ }
-  const servers = serversOf(await pageText(SITE + "/ver/" + slug), preferred === "auto" ? "" : preferred);
+  const servers = serversOf(await pageText(SITE + "/ver/" + slug), preferred === "auto" ? "" : preferred, serverScores());
   if (!servers.length) throw kino.error("not_found", "no servers", { userMessage: t(kino, "noServer") });
   const deadline = Date.now() + CALL_MS;
-  // Each server is opened through the shared kino-resolver; a host it cannot reach inline (e.g. savefiles behind Cloudflare) falls
-  // to Kino's hidden browser, with a small shared budget so one slow capture does not hold the whole attempt back.
+  // Each server is opened through the shared kino-resolver; a host it cannot reach inline (a gated or unknown one, e.g.
+  // savefiles behind Cloudflare) falls to Kino's hidden browser, with a small shared budget so one slow capture does not hold
+  // the whole attempt back. A stream the resolver found is peeked at first: its CDN can be down for that one file.
   const budget = { captures: 2 };
-  const open = async (s) => {
+  const openOne = async (s) => {
     try {
       const res = await kino.plugins.call("resolver", "resolve", { url: s.link, referer: SITE + "/" });
       const st = (res && Array.isArray(res.streams) ? res.streams : []).find((x) => x && x.url);
-      if (st) return toStream(st);
-      if (res && res.error === "needs_browser") return captureOpen(s.link, budget);
-    } catch (_) { /* provider_missing / failed: a known capture host may still open in the hidden browser */ }
-    // savefiles sits behind Cloudflare, which the inline-only resolver cannot pass: the hidden browser opens it.
-    if (s.kind === "savefiles") return captureOpen(s.link, budget);
-    return null;
+      if (st) { const out = toStream(st); return (await answers(out)) ? out : null; }
+      if (res && res.error === "dead") return null;
+    } catch (_) { /* provider_missing / failed: the hidden browser may still reach it */ }
+    return captureOpen(s.link, budget);
+  };
+  const open = async (s) => {
+    const out = await openOne(s);
+    noteServer(s.kind, !!out);
+    return out;
   };
 
   // A copy the person asked for: resolve just that one.
