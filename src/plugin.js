@@ -249,7 +249,8 @@ async function answers(stream) {
     // Only a real playlist address must read like one (streamtape's get_video?… is an mp4 behind a token).
     return !/\.m3u8(\?|$)/i.test(stream.url) || /^\s*#EXTM3U/.test(r.text() || "");
   } catch (e) {
-    return !!(e && (e.code === "host_not_allowed" || e.code === "too_large"));
+    // A timeout is a slow CDN, not a dead one (a Redmi took 4.3 s for one TLS handshake, then played): the player gets it.
+    return !!(e && (e.code === "host_not_allowed" || e.code === "too_large" || e.code === "timeout"));
   }
 }
 
