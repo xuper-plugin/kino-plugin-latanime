@@ -2,7 +2,7 @@
 var kino_plugin_default = {
   id: "todoanime",
   name: "TodoAnime",
-  version: "0.5.4",
+  version: "0.5.5",
   apiVersion: 30,
   entry: "plugin.js",
   icon: "icon.png",
@@ -298,7 +298,7 @@ var kino_plugin_default = {
       label: "Abrir TodoAnime",
       labelEn: "Open TodoAnime"
     },
-    settingsIn: "screen"
+    settingsIn: "both"
   }
 };
 
@@ -986,7 +986,8 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     },
     retry({ state }) {
       const tab = TAB_IDS.includes(state.tab) ? state.tab : TAB_IDS[0];
-      return { state: { failed: null, pending: [tab] } };
+      const queued = Array.isArray(state.pending) ? state.pending.filter((t2) => t2 !== tab) : [];
+      return { state: { failed: null, pending: [tab, ...queued] } };
     },
     async tick({ state }) {
       const pending = Array.isArray(state.pending) ? state.pending : [];
