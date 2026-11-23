@@ -2,7 +2,7 @@
 var kino_plugin_default = {
   id: "todoanime",
   name: "TodoAnime",
-  version: "0.5.8",
+  version: "0.5.9",
   apiVersion: 30,
   entry: "plugin.js",
   icon: "icon.png",
@@ -277,9 +277,7 @@ var kino_plugin_default = {
     resolver: {
       repo: "xuper-plugin/kino-plugin-kino-resolver",
       door: "resolver",
-      calls: [
-        "resolve"
-      ]
+      calls: ["resolve", "rank"]
     }
   },
   recommends: [
@@ -329,7 +327,7 @@ var kino_plugin_default = {
   },
   signature: {
     authorKey: "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    value: "49a4b90d199b773accc8eadd58b17554ff0b1a4bd1ef9691eb368532ef5300b460c6a4e8d4285cde3329e19cfc36d14709cf1df8d68dac6109595c600939fe0c"
+    value: "4200fc210439c34fbf27ce467e503b0424d3cbf1936386248011090d7464c84f80145c01cc068f24dff37f166615b6d1540887ffe7e7aa5cc663d81dbaebd808"
   }
 };
 
@@ -660,13 +658,15 @@ var rail = (r, key, words, headers) => ({
   items: r.items,
   ...withHeaders(headers)
 });
-function browseView(cfg, { tab, data, recent, pending, failed, searching = false, device = "phone", own = null }) {
+function browseView(cfg, { tab, data, recent, pending, failed, searching = false, device = "phone", own = null, ownActions = [] }) {
   const tv = device === "tv";
   const tabs = own ? [cfg.tabs[0]] : cfg.tabs;
   const active = tabs.some((t2) => t2.id === tab) ? tab : tabs[0].id;
   const withTabs = tabs.length > 1;
   const body = [];
-  if (own) {
+  const ownBlocks = own && !Array.isArray(own) && Array.isArray(own.blocks) ? own.blocks : null;
+  if (ownBlocks) {
+  } else if (own) {
     body.push(...own);
   } else if (data) {
     const h = cfg.imageHeaders;
@@ -705,6 +705,8 @@ function browseView(cfg, { tab, data, recent, pending, failed, searching = false
     actions: [
       // barSearch: false (std 1.7.0): the plugin draws its own search field in its page instead of the bar's icon.
       ...cfg.barSearch ? [iconButton("searchButton", "search", "search", { ui: searchOpenOps(tabsInBar), event: "searchOpened" })] : [],
+      // std 1.9.0: the page's own bar buttons (page.actions), before the settings gear.
+      ...Array.isArray(ownActions) ? ownActions : [],
       iconButton("settingsButton", "settings", "settings", "openSettings")
     ]
   });
@@ -714,7 +716,7 @@ function browseView(cfg, { tab, data, recent, pending, failed, searching = false
     appBar,
     body: { type: "Column", key: "page", children: [
       ...withTabs && !tv ? [{ type: "Column", key: "tabsRow", padding: { compact: 0, expanded: 24 }, children: [tabBar(tabs, active)] }] : [],
-      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [...banner ? [banner] : [], { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
+      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: ownBlocks ? ownBlocks.filter((b) => b && Array.isArray(b.nodes) && b.nodes.length).flatMap((b, i) => b.edge ? b.nodes : [{ type: "Column", key: "block-" + i, padding: { compact: 12, expanded: 24 }, gap: 16, crossAxisAlignment: "stretch", children: b.nodes }]) : [...banner ? [banner] : [], { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
     ] },
     ...pending ? { every: { ms: POLL_MS, event: "tick" } } : {}
   };
@@ -1055,7 +1057,17 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
     const searching = st.searching === true;
     if (page) {
-      const tree = browseView(cfg, { tab: TAB_IDS[0], data: null, recent: [], pending: false, failed: false, searching, device, own: page.view({ ...c, state: st }) || [] });
+      const tree = browseView(cfg, {
+        tab: TAB_IDS[0],
+        data: null,
+        recent: [],
+        pending: false,
+        failed: false,
+        searching,
+        device,
+        own: page.view({ ...c, state: st }) || [],
+        ownActions: page.actions ? page.actions({ ...c, state: st }) || [] : []
+      });
       const every = page.every ? page.every({ ...c, state: st }) : null;
       return every ? { ...tree, every } : tree;
     }
@@ -1227,6 +1239,18 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     return handler ? await handler({ ...e, state: e.state || {} }) ?? null : null;
   }
   return { screen: screen2, screenEvent: screenEvent2, notePlayed };
+}
+
+// src/std/rank.js
+async function scoresFromResolver(kino2, urls) {
+  if (!Array.isArray(urls) || urls.length === 0) return null;
+  try {
+    const r = await kino2.plugins.call("resolver", "rank", { urls: urls.slice(0, 64).map(String) });
+    const s = r && Array.isArray(r.scores) ? r.scores : null;
+    return s && s.length === Math.min(urls.length, 64) ? s : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // src/logo.js
@@ -1446,11 +1470,12 @@ function noteServer(name, ok) {
   } catch (_) {
   }
 }
-function serversOf(html, preferred = "", score = null) {
-  const list = parsePlayers(html).map((p, n) => ({ ...p, n, kind: kindOf(p.link) }));
+function serversOf(html, preferred = "", score = null, ranks = null) {
+  const list = parsePlayers(html).map((p, n) => ({ ...p, n, kind: kindOf(p.link), _r: ranks && typeof ranks.get(p.link) === "number" ? ranks.get(p.link) : null }));
   const pref = (k) => preferred && k === preferred ? 0 : 1;
   const tier = (k) => NEEDS_BROWSER.has(k) || !PREFER.includes(k) ? 1 : 0;
   const learned = (k) => score ? -score(k) : 0;
+  if (ranks) return list.sort((a, b) => pref(a.kind) - pref(b.kind) || learned(a.kind) - learned(b.kind) || (b._r ?? 0) - (a._r ?? 0) || a.n - b.n).slice(0, MAX_COPIES);
   return list.sort((a, b) => pref(a.kind) - pref(b.kind) || tier(a.kind) - tier(b.kind) || learned(a.kind) - learned(b.kind) || rankOf(a.kind) - rankOf(b.kind) || a.n - b.n).slice(0, MAX_COPIES);
 }
 var labelOf = (s) => (s.name + " \xB7 " + hostName(s.link)).slice(0, 48);
@@ -1512,7 +1537,11 @@ async function resolve(ref) {
     preferred = String(kino.config.get("server") || "");
   } catch (_) {
   }
-  const servers = serversOf(await pageText(SITE + "/ver/" + slug), preferred === "auto" ? "" : preferred, serverScores());
+  const html = await pageText(SITE + "/ver/" + slug);
+  const links = parsePlayers(html).map((p) => p.link);
+  const scores = await scoresFromResolver(kino, links);
+  const ranks = scores ? new Map(links.map((l, i) => [l, scores[i]])) : null;
+  const servers = serversOf(html, preferred === "auto" ? "" : preferred, serverScores(), ranks);
   if (!servers.length) throw kino.error("not_found", "no servers", { userMessage: t(kino, "noServer") });
   const deadline = Date.now() + CALL_MS;
   const budget = { captures: 2 };
