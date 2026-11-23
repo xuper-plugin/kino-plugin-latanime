@@ -132,3 +132,14 @@ test("the meta cache dresses a card with its TMDB poster and a slide with the ba
   const [plain] = meta.dress([{ id: "zzz", ref: "z", title: "Z", kind: "series", poster: "https://latanime.org/thumbs/z.jpg" }]);
   assert.equal(plain.poster, "https://latanime.org/thumbs/z.jpg");
 });
+
+test("serversOf with kino-resolver's ranking: the preferred server, then what loaded best here, then the resolver's score", () => {
+  const html = ["https://www.mp4upload.com/embed-a.html", "https://mixdrop.top/e/b", "https://hexload.com/embed-c"]
+    .map((l, i) => `<a class="play-video" data-player="${Buffer.from(l).toString("base64")}">S${i}</a>`).join("");
+  const links = ["https://www.mp4upload.com/embed-a.html", "https://mixdrop.top/e/b", "https://hexload.com/embed-c"];
+  const ranks = new Map([[links[0], 30], [links[1], 85], [links[2], 60]]);
+  const kinds = (xs) => xs.map((s) => s.link);
+  const got = serversOf(html, "", null, ranks);
+  assert.deepEqual(kinds(got), [links[1], links[2], links[0]]);
+  assert.equal(serversOf(html, "mp4upload", null, ranks)[0].link, links[0], "the preferred server still goes first");
+});

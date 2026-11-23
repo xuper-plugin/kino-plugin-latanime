@@ -5,6 +5,7 @@
 import { UA } from "./util/http.js";
 import { SITE, parseCards, hasNext, parseAnime, parsePlayers, seriesOfEpisode } from "./site.js";
 import { makeStandardScreen } from "./std/index.js";
+import { scoresFromResolver } from "./std/rank.js";
 import { LOGO, LOGO_ASPECT } from "./logo.js";
 import { t } from "./i18n.js";
 
@@ -184,12 +185,15 @@ function noteServer(name, ok) {
  * https link the page lists is kept (the resolver reads far more hosts than this plugin ever did, and the hidden browser
  * takes the rest), in this order: the person's preferred server; then the ones read with plain requests before the ones that
  * need the hidden browser; inside each, the server that has loaded best for this person ([score]); then [PREFER]; then the page.
+ * With [ranks] (kino-resolver's rank call: a score per link, from its playback audit) that score replaces the plain/browser
+ * tier and [PREFER]: the person's preferred server, then what loaded best for this person, then the resolver's ranking.
  */
-export function serversOf(html, preferred = "", score = null) {
-  const list = parsePlayers(html).map((p, n) => ({ ...p, n, kind: kindOf(p.link) }));
+export function serversOf(html, preferred = "", score = null, ranks = null) {
+  const list = parsePlayers(html).map((p, n) => ({ ...p, n, kind: kindOf(p.link), _r: ranks && typeof ranks.get(p.link) === "number" ? ranks.get(p.link) : null }));
   const pref = (k) => (preferred && k === preferred ? 0 : 1);
   const tier = (k) => (NEEDS_BROWSER.has(k) || !PREFER.includes(k) ? 1 : 0);
   const learned = (k) => (score ? -score(k) : 0);
+  if (ranks) return list.sort((a, b) => pref(a.kind) - pref(b.kind) || learned(a.kind) - learned(b.kind) || (b._r ?? 0) - (a._r ?? 0) || a.n - b.n).slice(0, MAX_COPIES);
   return list.sort((a, b) => pref(a.kind) - pref(b.kind) || tier(a.kind) - tier(b.kind) || learned(a.kind) - learned(b.kind) || rankOf(a.kind) - rankOf(b.kind) || a.n - b.n).slice(0, MAX_COPIES);
 }
 
@@ -251,7 +255,11 @@ export async function resolve(ref) {
   if (!/^[\w-]{1,160}$/.test(slug)) throw kino.error("not_found");
   let preferred = "";
   try { preferred = String(kino.config.get("server") || ""); } catch (_) { /* the usual order */ }
-  const servers = serversOf(await pageText(SITE + "/ver/" + slug), preferred === "auto" ? "" : preferred, serverScores());
+  const html = await pageText(SITE + "/ver/" + slug);
+  const links = parsePlayers(html).map((p) => p.link);
+  const scores = await scoresFromResolver(kino, links);
+  const ranks = scores ? new Map(links.map((l, i) => [l, scores[i]])) : null;
+  const servers = serversOf(html, preferred === "auto" ? "" : preferred, serverScores(), ranks);
   if (!servers.length) throw kino.error("not_found", "no servers", { userMessage: t(kino, "noServer") });
   const deadline = Date.now() + CALL_MS;
   // Each server is opened through the shared kino-resolver; a host it cannot reach inline (a gated or unknown one, e.g.
