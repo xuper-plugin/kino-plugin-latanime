@@ -4,13 +4,13 @@
 
 import { UA } from "./util/http.js";
 import { SITE, parseCards, hasNext, parseAnime, parsePlayers, seriesOfEpisode } from "./site.js";
-import { makeBrowse } from "./browse/index.js";
+import { makeStandardScreen } from "./std/index.js";
+import { LOGO, LOGO_ASPECT } from "./logo.js";
 import { t } from "./i18n.js";
 
 // Kino waits for every request a call left running before it delivers the call's answer; ask it to drop them once the call settles.
 globalThis.__kinoDropPendingFetches = true;
 
-const BRAND = "TodoAnime";
 const MAX_COPIES = 8;
 const TRY_AT_ONCE = 3; // servers opened together when an episode is played
 const CALL_MS = 16000;
@@ -196,10 +196,8 @@ export function serversOf(html, preferred = "", score = null) {
 const labelOf = (s) => (s.name + " · " + hostName(s.link)).slice(0, 48);
 function hostName(link) { try { return new URL(link).hostname.replace(/^www\./, ""); } catch (_) { return "servidor"; } }
 
-// ---- Kino Resolver install gate, and the resolver/hidden-browser that open each server ----
+// ---- the resolver and the hidden browser that open each server ----
 
-const RESOLVER_REPO = "xuper-plugin/kino-plugin-kino-resolver";
-const SUPPORT_URL = "https://ko-fi.com/xuperplugins";
 const HLS = "application/vnd.apple.mpegurl";
 const CAPTURE_MS = 20000;
 
@@ -207,26 +205,6 @@ const CAPTURE_MS = 20000;
 async function resolverInstalled() {
   try { await kino.plugins.call("resolver", "normalizeHost", { url: "https://probe.invalid/" }); return true; }
   catch (e) { return (e && e.code) !== "provider_missing"; }
-}
-
-/** The donate affordance under the install button: a QR on a TV (a link is hard to open there), a heart button elsewhere. */
-function supportNode(device) {
-  if (device === "tv") return { type: "QrImage", value: SUPPORT_URL, size: "large", labelText: "Si te gusta mi trabajo, escanéalo y apóyame", labelTextEn: "If you like my work, scan it and support me" };
-  return { type: "ElevatedButton", key: "donate", icon: "heart", labelText: "Si te gusta mi trabajo, apóyame", labelTextEn: "If you like my work, support me", onPressed: { go: { url: { href: SUPPORT_URL } } } };
-}
-
-/** The install gate: the first screen while the shared kino-resolver (the engine TodoAnime plays through) is not installed. */
-function installGateView(device) {
-  return { type: "Scaffold", key: "todoanime-install",
-    body: { type: "SingleChildScrollView", key: "installScroll", children: [
-      { type: "Column", padding: 24, gap: 16, crossAxisAlignment: "stretch", children: [
-        { type: "Text", text: "Necesitas el motor de reproducción", textEn: "You need the playback engine", style: "h3" },
-        { type: "Text", color: "secondary", text: "TodoAnime reproduce a través de Kino Resolver (gratis). Instálalo una vez y sirve para este y para otros plugins de sitios.", textEn: "TodoAnime plays through Kino Resolver (free). Install it once and it works here and in other site plugins." },
-        { type: "ElevatedButton", key: "installResolver", labelText: "Instalar Kino Resolver", labelTextEn: "Install Kino Resolver", onPressed: { go: { installPlugin: { repo: RESOLVER_REPO } } } },
-        supportNode(device),
-      ] },
-    ] },
-  };
 }
 
 /** A resolver stream as a Kino copy: `{ url, mime, headers }`, HLS unless the url ends in .mp4. */
@@ -318,7 +296,7 @@ export async function resolve(ref) {
     return opened[i] ? { ...opened[i], label: labelOf(s) } : { label: labelOf(s), ref: slug + "|" + s.n };
   }).slice(0, MAX_COPIES - 1);
   const out = { ...opened[at], label: labelOf(first), alternatives };
-  try { browseScreen().notePlayed(seriesOfEpisode(slug)); } catch (_) { /* never fails a play */ }
+  try { standard().notePlayed(seriesOfEpisode(slug)); } catch (_) { /* never fails a play */ }
   return out;
 }
 
@@ -355,27 +333,30 @@ export function metaTitle(title) {
 /** The TMDB search a card belongs to: the site files its films as "Película". */
 export const metaType = (title) => (/pel[ií]culas?/i.test(String(title || "")) ? "movie" : "series");
 
-let browseInstance = null;
-const browseScreen = () => (browseInstance ??= makeBrowse({
-  kino,
-  brand: BRAND,
-  tabs: TABS.map(({ id, es, en }) => ({ id, es, en })),
-  loadTab,
-  searchTitles: (q) => search({ q }),
-  titleOf: (c) => metaTitle(c.title),
-  typeOf: (c) => metaType(c.title),
+// ---- the screen: the standard xuper-plugin screen (src/std) ----
+
+// TodoAnime opens every server through kino-resolver (the hidden-browser capture is only a fallback), so it does not play without it: the screen is the install gate while it is missing, and resolve() refuses.
+let std = null;
+const standard = () => (std ??= makeStandardScreen({
+  kino, name: "TodoAnime", logo: LOGO, logoAspect: LOGO_ASPECT, needsResolver: true, hasSettings: true,
+  tabs: [
+    { id: "inicio", label: "Inicio", labelEn: "Home" },
+    { id: "emision", label: "En emisión", labelEn: "Airing" },
+    { id: "peliculas", label: "Películas", labelEn: "Movies" },
+    { id: "generos", label: "Géneros", labelEn: "Genres" },
+  ],
+  loadTab: loadTab,
+  titleOf: (c) => metaTitle(c.title), typeOf: (c) => metaType(c.title),
+  // The site's thumbnails sit behind Cloudflare: TMDB's pictures where a title matches, and the site's own asked with its Referer.
+  tmdbPictures: true, imageHeaders: { Referer: SITE + "/", "User-Agent": UA },
 }));
 
-/** `screen(ctx)`: the plugin's own browse screen (a pure view: it draws what it holds and never waits for the site). */
 export async function screen(ctx) {
   await null;
-  const c = ctx && typeof ctx === "object" ? ctx : {};
-  if (!(c.installed && c.installed[RESOLVER_REPO])) return installGateView(c.device);
-  return browseScreen().view(c);
+  return standard().screen(ctx && typeof ctx === "object" ? ctx : {});
 }
 
-/** `screenEvent(ev)`: the screen's events (its timers load a tab or a search, one per call). */
 export async function screenEvent(ev) {
   await null;
-  return browseScreen().event(ev && typeof ev === "object" ? ev : {});
+  return standard().screenEvent(ev && typeof ev === "object" ? ev : {});
 }

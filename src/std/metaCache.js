@@ -1,13 +1,14 @@
 // TMDB ids and title logos for the browse screen's cards, through Kino's own `kino.meta` (no key in the plugin). A card with a
 // TMDB id lets Kino complete its page (description, logo, cast) from TMDB; a slide with a logo draws it where its title is.
-// One lookup per title, by its name (and year when the card has one), kept in kino.storage (`meta1`, at most MAX entries, the
+// One lookup per title, by its name (and year when the card has one), kept in kino.storage (`meta2`, at most MAX entries, the
 // oldest dropped) so a title is asked once. Nothing here ever throws: a title that cannot be matched just stays as it was.
+// `titleOf` / `typeOf` shape what is asked (an anime site's titles carry words TMDB does not know); `tmdbPictures` puts TMDB's
+// poster on the cards (and index.js its backdrop on the slides) for a site whose own pictures do not load.
 const KEY = "meta2"; // v2 also keeps the poster and the backdrop
 const MAX = 120;
-const CALL_MS = 8_000;
 const HTTPS = /^https:\/\//;
 
-export function makeMetaCache({ kino, titleOf = (c) => c.title, typeOf = (c) => (c.kind === "series" ? "series" : "movie"), clock = { now: () => Date.now() } }) {
+export function makeMetaCache({ kino, titleOf = (c) => c.title, typeOf = (c) => (c.kind === "series" ? "series" : "movie"), tmdbPictures = false, clock = { now: () => Date.now() } }) {
   const usable = () => { try { return typeof kino.meta === "function" && kino.meta.byTitle === true; } catch (_) { return false; } };
   let book = null; // id -> { t: tmdb id | 0, l: logo | "", p: poster | "", b: backdrop | "" }, 0 / "" = asked and nothing found
 
@@ -37,17 +38,19 @@ export function makeMetaCache({ kino, titleOf = (c) => c.title, typeOf = (c) => 
     };
   }
 
-  /** The cards with their TMDB id and TMDB poster (the site's own pictures sit behind a Cloudflare challenge); [cards] untouched when nothing is known. */
+  /** The cards with their TMDB id (and TMDB's poster with `tmdbPictures`); [cards] untouched when nothing is known. */
   function dress(cards) {
     return cards.map((c) => {
       const k = known(c.id);
-      if (!k.tmdb && !k.poster) return c;
-      return { ...c, ...(k.tmdb && !(c.ids && c.ids.tmdb) ? { ids: { ...(c.ids || {}), tmdb: k.tmdb } } : {}), ...(k.poster ? { poster: k.poster } : {}) };
+      const poster = tmdbPictures && k.poster ? k.poster : null;
+      if (!k.tmdb && !poster) return c;
+      return { ...c, ...(k.tmdb && !(c.ids && c.ids.tmdb) ? { ids: { ...(c.ids || {}), tmdb: k.tmdb } } : {}), ...(poster ? { poster } : {}) };
     });
   }
 
   /**
-   * Asks Kino about the titles of [cards] not asked yet, one after another, until [budgetMs] is spent. Returns how many were asked.
+   * Asks Kino about the titles of [cards] not asked yet, one after another, while [budgetMs] is not spent (a call already started
+   * runs to its end: Kino answers most from its own cache in a few ms). Returns how many were asked.
    * A failure (rate limit, no match, a timeout) is remembered as "nothing found" only when Kino answered null; a thrown error is
    * tried again on a later call.
    */
@@ -57,7 +60,7 @@ export function makeMetaCache({ kino, titleOf = (c) => c.title, typeOf = (c) => 
     const end = clock.now() + budgetMs;
     let asked = 0;
     for (const c of cards) {
-      if (clock.now() + CALL_MS > end) break;
+      if (clock.now() >= end) break;
       if (!c || typeof c.id !== "string" || Object.hasOwn(b, c.id) || (c.ids && c.ids.tmdb && c.noLogo)) continue;
       const year = c.year !== undefined ? { year: c.year } : {};
       try {
@@ -76,5 +79,5 @@ export function makeMetaCache({ kino, titleOf = (c) => c.title, typeOf = (c) => 
     return asked;
   }
 
-  return { known, dress, fill, usable };
+  return { known, dress, fill, usable, tmdbPictures };
 }

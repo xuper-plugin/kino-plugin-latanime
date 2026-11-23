@@ -5,10 +5,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "../sdk/validate.mjs";
 import { parseCards, hasNext, parseAnime, parsePlayers, unwrap, seriesOfEpisode, langOf } from "../src/site.js";
-import { listUrl, TABS, serversOf, kindOf, metaTitle, metaType } from "../src/plugin.js";
-import { makeMetaCache } from "../src/browse/metaCache.js";
-import { tabOf, slidesOf, recentOf } from "../src/browse/model.js";
-import { browseView, searchView } from "../src/browse/view.js";
+import { listUrl, serversOf, kindOf, metaTitle, metaType } from "../src/plugin.js";
+import { makeMetaCache } from "../src/std/metaCache.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -85,46 +83,6 @@ test("kindOf names a server by its host family (the names the server setting use
   for (const [u, k] of Object.entries(cases)) assert.equal(kindOf(u), k, u);
 });
 
-const item = (n, extra = {}) => ({ id: "a" + n, ref: "a" + n, title: "Anime " + n, kind: "series", poster: "https://x.example/p" + n + ".jpg", ...extra });
-
-test("slidesOf keeps titles with a picture and a synopsis; tabOf trims the rails", () => {
-  const rows = [{ id: "emision", title: "En emisión", items: [item(1, { overview: "Sinopsis uno", backdrop: "https://x.example/b1.jpg" }), item(2), item(3, { overview: "x".repeat(300) })] }, { id: "empty", title: "Vacía", items: [] }];
-  const slides = slidesOf(rows);
-  assert.equal(slides.length, 2);
-  assert.equal(slides[0].image, "https://x.example/b1.jpg");
-  assert.equal(slides[1].image, "https://x.example/p3.jpg"); // no backdrop: the poster
-  assert.ok(slides[1].text.length <= 160);
-  const tab = tabOf({ rows });
-  assert.equal(tab.rails.length, 1);
-  assert.equal(tabOf({ rows: [] }), null);
-});
-
-test("recentOf finds the played titles among the loaded cards, newest first", () => {
-  const data = { slides: [], rails: [{ id: "r", title: "R", items: [item(1), item(2), item(3)] }] };
-  assert.deepEqual(recentOf(["a3", "gone", "a1"], [data]).map((c) => c.id), ["a3", "a1"]);
-});
-
-test("the screen's trees: skeletons before the data, the slider and rails after, tabs for every tab", () => {
-  const tabs = TABS.map(({ id, es, en }) => ({ id, es, en }));
-  const before = JSON.stringify(browseView({ brand: "LatAnime", tabs, tab: "inicio", data: null, recent: [], pending: true, failed: false }));
-  assert.ok(before.includes("Skeleton") && before.includes('"every"'));
-  const data = { slides: [{ id: "a1", ref: "a1", kind: "series", title: "Anime 1", image: "https://x.example/b.jpg", text: "Sinopsis" }, { id: "a2", ref: "a2", kind: "series", title: "Anime 2", image: "https://x.example/b2.jpg", text: "Otra" }], rails: [{ id: "emision", title: "En emisión", titleEn: "Airing now", items: [item(1)] }] };
-  const after = JSON.stringify(browseView({ brand: "LatAnime", tabs, tab: "inicio", data, recent: [], pending: false, failed: false }));
-  assert.ok(after.includes("PageView") && after.includes("titleRail") && after.includes("Airing now"));
-  for (const t of tabs) assert.ok(after.includes(t.es), t.es);
-  const search = JSON.stringify(searchView({ query: "naruto", status: "done", items: [item(1)], device: "phone" }));
-  assert.ok(search.includes("titleGrid"));
-});
-
-test("every picture of a hero card, rail and grid is asked with the site's Referer and a browser User-Agent", () => {
-  const tabs = TABS.map(({ id, es, en }) => ({ id, es, en }));
-  const data = { slides: [{ id: "a1", ref: "a1", kind: "series", title: "Anime 1", image: "https://latanime.org/thumbs/b.webp", text: "S" }, { id: "a2", ref: "a2", kind: "series", title: "Anime 2", image: "https://latanime.org/thumbs/c.webp", text: "S" }], rails: [{ id: "r", title: "R", items: [item(1)] }] };
-  const view = JSON.stringify(browseView({ brand: "LatAnime", tabs, tab: "inicio", data, recent: [], pending: false, failed: false }));
-  const search = JSON.stringify(searchView({ query: "naruto", status: "done", items: [item(1)], device: "phone" }));
-  const wanted = '"headers":{"Referer":"https://latanime.org/","User-Agent":"Mozilla/5.0';
-  assert.equal(view.split(wanted).length - 1, 3, "two slides and one rail");
-  assert.equal(search.split(wanted).length - 1, 1, "the grid");
-});
 
 test("metaTitle drops the language, season, year and the word Pelicula the site adds, for TMDB", () => {
   assert.equal(metaTitle("Hotaru no Yomeiri Latino"), "Hotaru no Yomeiri");
@@ -156,18 +114,6 @@ test("serversOf keeps every server, puts the preferred one first, and orders the
   assert.equal(serversOf(html, "mp4upload", score)[0].kind, "mp4upload", "the preferred server still goes first");
 });
 
-test("the slider's key carries its slide count, so a pager is never reused for a different number of slides", () => {
-  const slide = (n) => ({ id: "a" + n, ref: "a" + n, kind: "series", title: "T" + n, image: "https://x.example/b" + n + ".jpg", text: "Sinopsis" });
-  const tabs = [{ id: "inicio", es: "Inicio", en: "Home" }];
-  const keyOf = (n) => {
-    const v = browseView({ brand: "X", tabs, tab: "inicio", data: { slides: Array.from({ length: n }, (_, i) => slide(i + 1)), rails: [] }, recent: [], pending: false, failed: false });
-    return /"key":"(hero\d*)"/.exec(JSON.stringify(v))[1];
-  };
-  assert.equal(keyOf(4), "hero4");
-  assert.equal(keyOf(6), "hero6");
-  assert.notEqual(keyOf(4), keyOf(6));
-});
-
 test("the meta cache dresses a card with its TMDB poster and a slide with the backdrop, and asks each title once", async () => {
   const store = new Map();
   let asked = 0;
@@ -175,7 +121,7 @@ test("the meta cache dresses a card with its TMDB poster and a slide with the ba
     storage: { get: (k) => store.get(k) ?? null, set: (k, v) => store.set(k, v) },
     meta: Object.assign(async () => { asked++; return { ids: { tmdb: 77 }, poster: "https://image.tmdb.org/t/p/w500/p.jpg", backdrop: "https://image.tmdb.org/t/p/w1280/b.jpg", logo: "https://image.tmdb.org/t/p/w500/l.png" }; }, { byTitle: true }),
   };
-  const meta = makeMetaCache({ kino, titleOf: (c) => c.title.replace(/ Latino$/, "") });
+  const meta = makeMetaCache({ kino, titleOf: (c) => c.title.replace(/ Latino$/, ""), tmdbPictures: true });
   assert.equal(await meta.fill([{ id: "a", title: "Hotaru Latino", kind: "series" }, { id: "a", title: "Hotaru Latino", kind: "series" }], 60_000), 1);
   assert.equal(await meta.fill([{ id: "a", title: "Hotaru Latino", kind: "series" }], 60_000), 0);
   assert.equal(asked, 1);
