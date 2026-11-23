@@ -337,7 +337,7 @@ export const metaType = (title) => (/pel[ií]culas?/i.test(String(title || "")) 
 
 // TodoAnime opens every server through kino-resolver (the hidden-browser capture is only a fallback), so it does not play without it: the screen is the install gate while it is missing, and resolve() refuses.
 let std = null;
-const standard = () => (std ??= makeStandardScreen({
+const standard = () => (std ??= makeStandardScreen({ snapshot: "xuper-plugin/kino-plugin-latanime",
   kino, name: "TodoAnime", logo: LOGO, logoAspect: LOGO_ASPECT, needsResolver: true, hasSettings: true,
   tabs: [
     { id: "inicio", label: "Inicio", labelEn: "Home" },

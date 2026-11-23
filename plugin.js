@@ -2,7 +2,7 @@
 var kino_plugin_default = {
   id: "todoanime",
   name: "TodoAnime",
-  version: "0.5.7",
+  version: "0.5.8",
   apiVersion: 30,
   entry: "plugin.js",
   icon: "icon.png",
@@ -329,7 +329,7 @@ var kino_plugin_default = {
   },
   signature: {
     authorKey: "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    value: "b1e823766e843128d633a07bdd33f2012c1d8028c0d86005aaae291edd3d4f502c96d6223eeab562ab57d614454c5196d96d9dc3e315b7f7603578d3e7d91b01"
+    value: "49a4b90d199b773accc8eadd58b17554ff0b1a4bd1ef9691eb368532ef5300b460c6a4e8d4285cde3329e19cfc36d14709cf1df8d68dac6109595c600939fe0c"
   }
 };
 
@@ -880,9 +880,38 @@ var INFLIGHT_KEY = "std:inflight";
 var INFLIGHT_STALE_MS = 18e3;
 var MAX_META_TICKS = 10;
 var DEFAULT_TABS = [{ id: "inicio", label: "Inicio", labelEn: "Home" }];
-function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect = "1:1", needsResolver, hasSettings, tabs, loadTab: loadTab2, homeKey = null, titleOf: titleOf2, typeOf, tmdbPictures = false, imageHeaders = null, searchHere = null, page = null, barSearch = true, backArrow = true }) {
+var SNAPSHOT_VERSION = 1;
+var SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
+var SNAPSHOT_TIMEOUT_MS = 8e3;
+var snapshotUrl = (repo, tab) => "https://raw.githubusercontent.com/" + repo + "/main/home/" + encodeURIComponent(tab) + ".json";
+function snapshotRows(text, tab, now = Date.now()) {
+  let o;
+  try {
+    o = JSON.parse(String(text));
+  } catch (_) {
+    return null;
+  }
+  if (!o || o.v !== SNAPSHOT_VERSION || o.tab !== tab || !Array.isArray(o.rows) || o.rows.length === 0) return null;
+  const at = Number(o.at);
+  if (!Number.isFinite(at) || now - at > SNAPSHOT_MAX_AGE_MS || at - now > 60 * 60 * 1e3) return null;
+  return o.rows;
+}
+var lastSource = null;
+function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect = "1:1", needsResolver, hasSettings, tabs, loadTab: loadTab2, homeKey = null, titleOf: titleOf2, typeOf, tmdbPictures = false, imageHeaders = null, searchHere = null, page = null, barSearch = true, backArrow = true, snapshot = null }) {
   const cfg = { name, nameEn, logo, logoAspect, imageHeaders, hasSettings: !!hasSettings, barSearch: barSearch !== false, backArrow: backArrow !== false, tabs: Array.isArray(tabs) && tabs.length > 0 ? tabs : DEFAULT_TABS };
   const TAB_IDS = cfg.tabs.map((t2) => t2.id);
+  lastSource = { tabs: cfg.tabs, loadTab: loadTab2, titleOf: titleOf2, typeOf };
+  async function fromSnapshot(tab) {
+    if (typeof snapshot !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(snapshot)) return null;
+    try {
+      const r = await kino2.fetch(snapshotUrl(snapshot, tab), { timeoutMs: SNAPSHOT_TIMEOUT_MS });
+      if (!r || !r.ok) return null;
+      const rows = snapshotRows(await r.text(), tab);
+      return rows ? { rows } : null;
+    } catch (_) {
+      return null;
+    }
+  }
   const meta = makeMetaCache({ kino: kino2, titleOf: titleOf2, typeOf, tmdbPictures });
   function slidesFromMeta(rails) {
     const out = [];
@@ -1047,7 +1076,7 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     set(INFLIGHT_KEY, JSON.stringify({ tab, at: Date.now() }));
     let page2;
     try {
-      page2 = await loadTab2(tab);
+      page2 = await fromSnapshot(tab) || await loadTab2(tab);
     } finally {
       try {
         kino2.storage.remove(INFLIGHT_KEY);
@@ -1561,6 +1590,7 @@ function metaTitle(title) {
 var metaType = (title) => /pel[ií]culas?/i.test(String(title || "")) ? "movie" : "series";
 var std = null;
 var standard = () => std ?? (std = makeStandardScreen({
+  snapshot: "xuper-plugin/kino-plugin-latanime",
   kino,
   name: "TodoAnime",
   logo: LOGO,

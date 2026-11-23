@@ -1,7 +1,7 @@
 {
   "id": "todoanime",
   "name": "TodoAnime",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "apiVersion": 30,
   "entry": "plugin.js",
   "icon": "icon.png",
@@ -328,6 +328,6 @@
   },
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "49a4b90d199b773accc8eadd58b17554ff0b1a4bd1ef9691eb368532ef5300b460c6a4e8d4285cde3329e19cfc36d14709cf1df8d68dac6109595c600939fe0c"
+    "value": "4200fc210439c34fbf27ce467e503b0424d3cbf1936386248011090d7464c84f80145c01cc068f24dff37f166615b6d1540887ffe7e7aa5cc663d81dbaebd808"
   }
 }
