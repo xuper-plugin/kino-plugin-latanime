@@ -101,7 +101,9 @@ async function rowsOfLists(refs) {
 export async function home() {
   const out = await rowsOfLists(["emision", "animes", "c:Película", "g:accion", "g:comedia"]);
   if (!out.length) throw kino.error("unavailable", "no list answered", { userMessage: t(kino, "siteDown") });
-  return out.map(({ titleEn, ...row }) => row);
+  // Every list is anime (the site has nothing else): the row says so, which is how Kino's Home by categories fills its Anime shelf.
+  // "En emisión" is first: the series with a new episode lead, then the catalogue and the movies.
+  return out.map(({ titleEn, ...row }) => ({ ...row, genre: "anime" }));
 }
 
 export async function browse(ref, cursor) {

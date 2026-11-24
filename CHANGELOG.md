@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.10
+
+- Every Home row is typed anime (Kino's Home by categories fills its Anime shelf from them); "En emisión", the series with a new episode, leads
+
 ## 0.5.9
 
 - Servers ordered by how well each hoster plays (kino-resolver's ranking) (std 1.9.2)

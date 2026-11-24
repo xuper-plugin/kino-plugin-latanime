@@ -43,3 +43,9 @@ test("a list that never answers is left off and the others are shown at the budg
     assert.ok(clock <= 12000, "gave up at the budget, clock " + clock);
   } finally { Date.now = realNow; hang = false; }
 });
+
+test("every home row is typed anime and the airing list leads", async () => {
+  const rows = await plugin.home();
+  assert.equal(rows[0].ref, "emision");
+  for (const r of rows) assert.equal(r.genre, "anime", r.id);
+});

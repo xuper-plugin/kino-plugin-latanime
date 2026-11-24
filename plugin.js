@@ -2,7 +2,7 @@
 var kino_plugin_default = {
   id: "todoanime",
   name: "TodoAnime",
-  version: "0.5.9",
+  version: "0.5.10",
   apiVersion: 30,
   entry: "plugin.js",
   icon: "icon.png",
@@ -277,7 +277,10 @@ var kino_plugin_default = {
     resolver: {
       repo: "xuper-plugin/kino-plugin-kino-resolver",
       door: "resolver",
-      calls: ["resolve", "rank"]
+      calls: [
+        "resolve",
+        "rank"
+      ]
     }
   },
   recommends: [
@@ -327,7 +330,7 @@ var kino_plugin_default = {
   },
   signature: {
     authorKey: "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    value: "4200fc210439c34fbf27ce467e503b0424d3cbf1936386248011090d7464c84f80145c01cc068f24dff37f166615b6d1540887ffe7e7aa5cc663d81dbaebd808"
+    value: "2c97212a05eecc6f181467f0c337156aa2937013d19931d7fe72b880c5eb8f2825de59ee945db98102b23fc6baad6da1f4156bf45bad6e8241fcccaaaaa96506"
   }
 };
 
@@ -1389,7 +1392,7 @@ async function rowsOfLists(refs) {
 async function home() {
   const out = await rowsOfLists(["emision", "animes", "c:Pel\xEDcula", "g:accion", "g:comedia"]);
   if (!out.length) throw kino.error("unavailable", "no list answered", { userMessage: t(kino, "siteDown") });
-  return out.map(({ titleEn, ...row }) => row);
+  return out.map(({ titleEn, ...row }) => ({ ...row, genre: "anime" }));
 }
 async function browse(ref, cursor) {
   const page = Math.max(1, parseInt(cursor, 10) || 1);
