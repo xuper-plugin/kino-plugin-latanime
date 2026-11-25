@@ -2,7 +2,7 @@
 var kino_plugin_default = {
   id: "todoanime",
   name: "TodoAnime",
-  version: "0.5.10",
+  version: "0.5.11",
   apiVersion: 30,
   entry: "plugin.js",
   icon: "icon.png",
@@ -308,9 +308,16 @@ var kino_plugin_default = {
         search: {
           in: {
             q: "string",
-            type: "string?"
+            type: "string?",
+            tmdb: "number?"
           },
           out: "Item[]"
+        },
+        episodes: {
+          in: {
+            ref: "string"
+          },
+          out: "Episode[]"
         }
       },
       types: {
@@ -324,13 +331,19 @@ var kino_plugin_default = {
           year: "string?",
           overview: "string?",
           tmdb: "number?"
+        },
+        Episode: {
+          season: "number",
+          number: "number",
+          ref: "string",
+          title: "string?"
         }
       }
     }
   },
   signature: {
     authorKey: "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    value: "2c97212a05eecc6f181467f0c337156aa2937013d19931d7fe72b880c5eb8f2825de59ee945db98102b23fc6baad6da1f4156bf45bad6e8241fcccaaaaa96506"
+    value: "6733841cf4d6063417d91c8b6bd828a9ddcb2feac3b1f177367e195121ad3a14f99bafbcbe7567e6a0a0d1b2a5e56d5ed36c21ab0036bb5bfdfc892de39c7002"
   }
 };
 
@@ -1278,6 +1291,7 @@ function t(kino2, key, vars) {
 
 // src/std/catalog.js
 var CATALOG_MAX = 40;
+var CATALOG_EPISODES_MAX = 500;
 var OVERVIEW_MAX2 = 300;
 var HTTPS4 = /^https:\/\//;
 function catalogItems(found) {
@@ -1300,13 +1314,42 @@ function catalogItems(found) {
 function catalogQuery(arg) {
   const q = String(arg && arg.q || "").trim().slice(0, 200);
   const type = arg && (arg.type === "movie" || arg.type === "series") ? arg.type : "any";
-  return { q, type, season: 0, episode: 0, tmdbId: 0, year: 0, originalTitle: "", altTitles: [], cursor: null };
+  const tmdbId = arg && Number.isInteger(arg.tmdb) && arg.tmdb > 0 ? arg.tmdb : 0;
+  return { q, type, season: 0, episode: 0, tmdbId, year: 0, originalTitle: "", altTitles: [], cursor: null };
 }
 function catalogDoor(search2) {
   return async (arg) => {
     const query = catalogQuery(arg);
     if (!query.q) return [];
     return catalogItems(await search2(query));
+  };
+}
+function wholeNumber(v) {
+  if (Number.isInteger(v)) return v;
+  if (typeof v === "string" && /^\s*\d+\s*$/.test(v)) return parseInt(v, 10);
+  return null;
+}
+function catalogEpisodes(list) {
+  const rows = Array.isArray(list) ? list : list && Array.isArray(list.episodes) ? list.episodes : [];
+  const out = [];
+  for (const e of rows) {
+    if (out.length >= CATALOG_EPISODES_MAX) break;
+    if (!e) continue;
+    const number = wholeNumber(e.number);
+    if (number === null || number < 1 || typeof e.ref !== "string" || !e.ref) continue;
+    const season = e.season === void 0 || e.season === null ? 1 : wholeNumber(e.season);
+    if (season === null || season < 0) continue;
+    const row = { season, number, ref: e.ref };
+    if (typeof e.title === "string" && e.title) row.title = e.title;
+    out.push(row);
+  }
+  return out;
+}
+function catalogEpisodesDoor(episodes2) {
+  return async (arg) => {
+    const ref = arg && typeof arg.ref === "string" ? arg.ref.trim() : "";
+    if (!ref) return [];
+    return catalogEpisodes(await episodes2(ref));
   };
 }
 
@@ -1651,6 +1694,7 @@ async function screenEvent(ev) {
   return standard().screenEvent(ev && typeof ev === "object" ? ev : {});
 }
 var proto_catalog_search = catalogDoor(search);
+var proto_catalog_episodes = catalogEpisodesDoor(episodes);
 export {
   TABS,
   browse,
@@ -1660,6 +1704,7 @@ export {
   listUrl,
   metaTitle,
   metaType,
+  proto_catalog_episodes,
   proto_catalog_search,
   resolve,
   screen,
